@@ -20,7 +20,6 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
     const uid = () => Math.random().toString(36).slice(2, 9);
-    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
     const DEFAULT_ROUNDS = [
       { id: uid(), label: "2 Sets of 3 (Tríos)" },
       { id: uid(), label: "1 Set of 3 + 1 Run of 4" },
@@ -35,6 +34,7 @@
       { id: uid(), label: "Royal Run (Escalera)" },
     ];
     const STORAGE_KEY = "carioca-scorekeeper-v1";
+    const UI_KEY = STORAGE_KEY + ":ui";
     function useLocalStorage(key, initial) {
       const [state, setState] = useState(() => {
         try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial; }
@@ -43,22 +43,13 @@
       useEffect(() => { try { localStorage.setItem(key, JSON.stringify(state)); } catch {} }, [key,state]);
       return [state,setState];
     }
-    // helpers
-    function addPlayerByName(name, arr) {
-      const trimmed = (name||"").trim();
-      if (!trimmed) return arr;
-      return [...arr, { id: uid(), name: trimmed }];
-    }
-    function renamePlayerById(id, name, arr) {
-      const trimmed = (name||"").trim();
-      if (!trimmed) return arr;
-      return arr.map(p => p.id === id ? { ...p, name: trimmed } : p);
-    }
+
     function App(){
       const [players,setPlayers]=useLocalStorage(STORAGE_KEY+":players",[
         {id:uid(),name:"Player 1"},{id:uid(),name:"Player 2"}]);
       const [rounds,setRounds]=useLocalStorage(STORAGE_KEY+":rounds",DEFAULT_ROUNDS);
       const [scores,setScores]=useLocalStorage(STORAGE_KEY+":scores",{});
+      const [ui, setUI] = useLocalStorage(UI_KEY, { playersCollapsed: false });
 
       // add & rename UI
       const [newName,setNewName]=useState("");
@@ -77,8 +68,10 @@
       function setScore(rid,pid,val){setScores(prev=>({...prev,[rid]:{...(prev[rid]||{}),[pid]:val}}));}
 
       function handleAdd(){
-        const next = addPlayerByName(newName, players);
-        if (next !== players){ setPlayers(next); setNewName(""); }
+        const name = newName.trim();
+        if(!name) return;
+        setPlayers([...players,{id:uid(),name}]);
+        setNewName("");
       }
       function startRename(id){
         const p = players.find(x=>x.id===id); if(!p) return;
@@ -86,25 +79,11 @@
       }
       function saveRename(){
         if(!renamingId) return;
-        const next = renamePlayerById(renamingId, renameValue, players);
-        setPlayers(next); setRenamingId(null); setRenameValue("");
+        const name = renameValue.trim(); if(!name) return;
+        setPlayers(players.map(p=>p.id===renamingId?{...p,name}:p));
+        setRenamingId(null); setRenameValue("");
       }
       function cancelRename(){ setRenamingId(null); setRenameValue(""); }
-
-      // tiny self-tests (opt-in with ?test=1)
-      useEffect(()=>{
-        const qs = new URLSearchParams(location.search);
-        if(!qs.has("test")) return;
-        try {
-          let arr=[{id:"a",name:"Alex"}];
-          arr = addPlayerByName(" Bob ", arr);
-          console.assert(arr.length===2 && arr[1].name==="Bob", "addPlayerByName failed");
-          const rid = arr[1].id;
-          const arr2 = renamePlayerById(rid, "Bobby", arr);
-          console.assert(arr2[1].name==="Bobby", "renamePlayerById failed");
-          console.log("[Self-tests] OK");
-        } catch(e){ console.error("Tests failed", e); }
-      },[]);
 
       // keyboard nav
       const inputRefs = useRef({});
@@ -126,36 +105,47 @@
         </header>
 
         <section className="p-4 border rounded-xl">
-          <h2 className="font-semibold mb-2">Players</h2>
-          <div className="flex gap-2 items-center flex-wrap">
-            <input className="border px-3 py-2 rounded" placeholder="New player name"
-              value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') handleAdd();}}/>
-            <button className="border px-3 py-2 rounded" onClick={handleAdd} disabled={!newName.trim()}>Add</button>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Players</h2>
+            <button className="text-sm border px-3 py-1 rounded"
+              onClick={()=>setUI({...ui, playersCollapsed: !ui.playersCollapsed})}>
+              {ui.playersCollapsed ? "Show players" : "Hide players"}
+            </button>
           </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {players.map(p=>(
-              <div key={p.id} className="flex items-center justify-between p-3 rounded bg-gray-50 border">
-                <div className="font-medium">
-                  {renamingId===p.id ? (
-                    <input autoFocus className="border rounded px-2 py-1" value={renameValue}
-                      onChange={e=>setRenameValue(e.target.value)}
-                      onKeyDown={e=>{ if(e.key==='Enter') saveRename(); if(e.key==='Escape') cancelRename(); }}/>
-                  ) : (<>
-                    {p.name} {leaderId===p.id && <span className="text-xs ml-2 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">leader</span>}
-                  </>)}
-                </div>
-                <div className="flex gap-1">
-                  {renamingId===p.id ? (<>
-                    <button className="px-2 py-1 border rounded" onClick={saveRename}>Save</button>
-                    <button className="px-2 py-1 border rounded" onClick={cancelRename}>Cancel</button>
-                  </>) : (<>
-                    <button className="px-2 py-1 border rounded" onClick={()=>startRename(p.id)}>Rename</button>
-                  </>)}
-                </div>
+          {!ui.playersCollapsed && (
+            <div className="mt-3">
+              <div className="flex gap-2 items-center flex-wrap">
+                <input className="border px-3 py-2 rounded" placeholder="New player name"
+                  value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') handleAdd();}}/>
+                <button className="border px-3 py-2 rounded" onClick={handleAdd} disabled={!newName.trim()}>Add</button>
               </div>
-            ))}
-          </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {players.map(p=>(
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded bg-gray-50 border">
+                    <div className="font-medium">
+                      {renamingId===p.id ? (
+                        <input autoFocus className="border rounded px-2 py-1" value={renameValue}
+                          onChange={e=>setRenameValue(e.target.value)}
+                          onKeyDown={e=>{ if(e.key==='Enter') saveRename(); if(e.key==='Escape') cancelRename(); }}/>
+                      ) : (<>
+                        {p.name} {leaderId===p.id && <span className="text-xs ml-2 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">leader</span>}
+                      </>)}
+                    </div>
+                    <div className="flex gap-1">
+                      {renamingId===p.id ? (<>
+                        <button className="px-2 py-1 border rounded" onClick={saveRename}>Save</button>
+                        <button className="px-2 py-1 border rounded" onClick={cancelRename}>Cancel</button>
+                      </>) : (<>
+                        <button className="px-2 py-1 border rounded" onClick={()=>startRename(p.id)}>Rename</button>
+                      </>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="p-4 border rounded-xl">
