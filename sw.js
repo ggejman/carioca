@@ -1,5 +1,5 @@
 
-const CACHE = 'carioca-v3';
+const CACHE = 'carioca-v4';
 const CORE_ASSETS = [
   './carioca-pwa.html',
   './manifest.webmanifest',
