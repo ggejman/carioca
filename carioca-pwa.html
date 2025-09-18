@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Carioca Scorekeeper v1.5</title>
+  <title>Carioca Scorekeeper</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -20,6 +20,7 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
     const uid = () => Math.random().toString(36).slice(2, 9);
+
     const DEFAULT_ROUNDS = [
       { id: uid(), label: "2 Sets of 3 (Tríos)" },
       { id: uid(), label: "1 Set of 3 + 1 Run of 4" },
@@ -33,31 +34,88 @@
       { id: uid(), label: "Color Run (Escalera)" },
       { id: uid(), label: "Royal Run (Escalera)" },
     ];
-    const STORAGE_KEY = "carioca-scorekeeper-v1";
-    const UI_KEY = STORAGE_KEY + ":ui";
-    function useLocalStorage(key, initial) {
-      const [state, setState] = useState(() => {
-        try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial; }
-        catch { return initial; }
-      });
-      useEffect(() => { try { localStorage.setItem(key, JSON.stringify(state)); } catch {} }, [key,state]);
-      return [state,setState];
-    }
+
+    const NS = "carioca-scorekeeper-v1";
+    const GAMES_KEY = NS + ":games";
+    const LAST_GAME_KEY = NS + ":lastGameId";
+    const GAME_PREFIX = NS + ":game:";
+
+    const nowISO = () => new Date().toISOString();
+    const newDefaultGameData = () => ({
+      players: [{id: uid(), name: "Player 1"}, {id: uid(), name: "Player 2"}],
+      rounds: DEFAULT_ROUNDS.map(r => ({...r})),
+      scores: {},
+      ui: { playersCollapsed: false }
+    });
+
+    const ls = {
+      read(key, fallback){ try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; } },
+      write(key, value){ try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+      remove(key){ try { localStorage.removeItem(key); } catch {} },
+    };
 
     function App(){
-      const [players,setPlayers]=useLocalStorage(STORAGE_KEY+":players",[
-        {id:uid(),name:"Player 1"},{id:uid(),name:"Player 2"}]);
-      const [rounds,setRounds]=useLocalStorage(STORAGE_KEY+":rounds",DEFAULT_ROUNDS);
-      const [scores,setScores]=useLocalStorage(STORAGE_KEY+":scores",{});
-      const [ui, setUI] = useLocalStorage(UI_KEY, { playersCollapsed: false });
+      const [games, setGames] = useState(() => ls.read(GAMES_KEY, []));
+      const [gameId, setGameId] = useState(() => ls.read(LAST_GAME_KEY, null));
 
-      // add & rename UI
-      const [newName,setNewName]=useState("");
-      const [renamingId,setRenamingId]=useState(null);
-      const [renameValue,setRenameValue]=useState("");
+      const [players, setPlayers] = useState([]);
+      const [rounds, setRounds]   = useState([]);
+      const [scores, setScores]   = useState({});
+      const [ui, setUI]           = useState({ playersCollapsed: false });
 
-      // undo state: { player, rows }
       const [lastDeleted, setLastDeleted] = useState(null);
+
+      useEffect(() => {
+        if (!games || games.length === 0) {
+          const name = prompt("Name your first game:", "Carioca Game 1") || "Carioca Game 1";
+          const id = uid();
+          const meta = { id, name, createdAt: nowISO(), updatedAt: nowISO() };
+          const data = newDefaultGameData();
+          const nextGames = [meta];
+          setGames(nextGames);
+          setGameId(id);
+          ls.write(GAMES_KEY, nextGames);
+          ls.write(LAST_GAME_KEY, id);
+          ls.write(GAME_PREFIX + id, data);
+          setPlayers(data.players); setRounds(data.rounds); setScores(data.scores); setUI(data.ui);
+          return;
+        }
+        let id = gameId;
+        if (!id) {
+          const sorted = [...games].sort((a,b) => (b.updatedAt||"").localeCompare(a.updatedAt||""));
+          id = sorted[0]?.id;
+          setGameId(id);
+          ls.write(LAST_GAME_KEY, id);
+        }
+        if (!id) return;
+        const data = ls.read(GAME_PREFIX + id, null);
+        if (data) {
+          setPlayers(data.players || []);
+          setRounds(data.rounds || []);
+          setScores(data.scores || {});
+          setUI(data.ui || { playersCollapsed: false });
+        } else {
+          const fresh = newDefaultGameData();
+          ls.write(GAME_PREFIX + id, fresh);
+          setPlayers(fresh.players); setRounds(fresh.rounds); setScores(fresh.scores); setUI(fresh.ui);
+        }
+      }, [gameId]);
+
+      useEffect(() => {
+        if (!gameId) return;
+        const payload = { players, rounds, scores, ui };
+        ls.write(GAME_PREFIX + gameId, payload);
+        const idx = games.findIndex(g => g.id === gameId);
+        if (idx !== -1) {
+          const next = [...games];
+          next[idx] = { ...next[idx], updatedAt: nowISO() };
+          setGames(next);
+          ls.write(GAMES_KEY, next);
+        }
+      }, [players, rounds, scores, ui]);
+
+      useEffect(() => { ls.write(GAMES_KEY, games); }, [games]);
+      useEffect(() => { ls.write(LAST_GAME_KEY, gameId); }, [gameId]);
 
       const totals=useMemo(()=>{
         let t={}; players.forEach(p=>t[p.id]=0);
@@ -66,81 +124,9 @@
       },[players,rounds,scores]);
       const leaderId=useMemo(()=>{
         if(!players.length) return null;
-        return players.map(p=>({id:p.id, total: totals[p.id]??0})).sort((a,b)=>a.total-b.total)[0].id;
+        return players.map(p=>({id:p.id, total: totals[p.id]??0})).sort((a,b)=>a.total-b.total)[0]?.id || null;
       },[players,totals]);
-      function setScore(rid,pid,val){setScores(prev=>({...prev,[rid]:{...(prev[rid]||{}),[pid]:val}}));}
 
-      function handleAdd(){
-        const name = newName.trim();
-        if(!name) return;
-        setPlayers([...players,{id:uid(),name}]);
-        setNewName("");
-      }
-      function startRename(id){
-        const p = players.find(x=>x.id===id); if(!p) return;
-        setRenamingId(id); setRenameValue(p.name);
-      }
-      function saveRename(){
-        if(!renamingId) return;
-        const name = renameValue.trim(); if(!name) return;
-        setPlayers(players.map(p=>p.id===renamingId?{...p,name}:p));
-        setRenamingId(null); setRenameValue("");
-      }
-      function cancelRename(){ setRenamingId(null); setRenameValue(""); }
-
-      function removePlayer(id){
-        const p = players.find(x=>x.id===id);
-        const ok = window.confirm ? window.confirm(`Remove “${p?.name||"this player"}”? This will also remove their scores.`) : true;
-        if(!ok) return;
-
-        const snapshot = {};
-        for (const r of rounds) {
-          const row = scores[r.id] || {};
-          if (Object.prototype.hasOwnProperty.call(row, id)) {
-            snapshot[r.id] = row[id];
-          }
-        }
-        setLastDeleted({ player: p, rows: snapshot });
-
-        const nextPlayers = players.filter(x=>x.id!==id);
-        setPlayers(nextPlayers);
-        setScores(prev => {
-          const ns = {...prev};
-          for (const r of rounds) {
-            const row = {...(ns[r.id]||{})};
-            if (id in row) delete row[id];
-            ns[r.id] = row;
-          }
-          return ns;
-        });
-      }
-
-      function undoLastRemoval(){
-        if (!lastDeleted) return;
-        const { player, rows } = lastDeleted;
-        setPlayers(prev => [...prev, { id: player.id, name: player.name }]);
-        setScores(prev => {
-          const ns = { ...prev };
-          for (const r of rounds) {
-            const row = { ...(ns[r.id] || {}) };
-            if (rows.hasOwnProperty(r.id)) {
-              row[player.id] = rows[r.id];
-            }
-            ns[r.id] = row;
-          }
-          return ns;
-        });
-        setLastDeleted(null);
-      }
-
-      function clearRound(roundId){
-        const r = rounds.find(rr => rr.id === roundId);
-        const ok = window.confirm ? window.confirm(`Clear all scores for “${r?.label||"this round"}”?`) : true;
-        if(!ok) return;
-        setScores(prev => ({ ...prev, [roundId]: {} }));
-      }
-
-      // keyboard nav
       const inputRefs = useRef({});
       const registerRef = (key) => (el) => { inputRefs.current[key]=el; };
       function onKeyMove(e,rIdx,cIdx){
@@ -153,10 +139,124 @@
         const el = inputRefs.current[key]; if(el){ el.focus(); el.select(); }
       }
 
-      return(<div className="max-w-5xl mx-auto p-4 space-y-6">
-        <header className="flex justify-between items-center py-2">
-          <h1 className="text-2xl font-bold">Carioca Scorekeeper v1.5</h1>
-          <div className="text-sm text-gray-600">Lower total wins</div>
+      function handleAddPlayer(n){ n=(n||"").trim(); if(!n) return; setPlayers([...players,{id:uid(),name:n}]); }
+      function startRename(id){
+        const p = players.find(x=>x.id===id); if(!p) return;
+        const name = prompt("Rename player:", p.name);
+        if(!name) return;
+        const t = name.trim(); if(!t) return;
+        setPlayers(players.map(pl=>pl.id===id?{...pl,name:t}:pl));
+      }
+      function removePlayer(id){
+        const p = players.find(x=>x.id===id);
+        const ok = confirm(`Remove “${p?.name||"this player"}”? This will also remove their scores.`);
+        if(!ok) return;
+        const snapshot = {}; for(const r of rounds){ const row = scores[r.id]||{}; if(Object.prototype.hasOwnProperty.call(row,id)) snapshot[r.id]=row[id]; }
+        setLastDeleted({player:p, rows:snapshot});
+        setPlayers(players.filter(x=>x.id!==id));
+        setScores(prev=>{ const ns={...prev}; for(const r of rounds){ const row={...(ns[r.id]||{})}; if(id in row) delete row[id]; ns[r.id]=row; } return ns; });
+      }
+      function undoLastRemoval(){
+        if(!lastDeleted) return;
+        const {player, rows}=lastDeleted;
+        setPlayers(prev=>[...prev, {id:player.id, name:player.name}]);
+        setScores(prev=>{ const ns={...prev}; for(const r of rounds){ const row={...(ns[r.id]||{})}; if(rows.hasOwnProperty(r.id)) row[player.id]=rows[r.id]; ns[r.id]=row; } return ns; });
+        setLastDeleted(null);
+      }
+
+      function setScore(rid,pid,val){ setScores(prev=>({...prev,[rid]:{...(prev[rid]||{}),[pid]:val}})); }
+
+      function createGame(){
+        const name = prompt("New game name:", `Carioca Game ${games.length+1}`);
+        if(!name) return;
+        const id = uid();
+        const meta = { id, name: name.trim(), createdAt: nowISO(), updatedAt: nowISO() };
+        const data = newDefaultGameData();
+        const next = [...games, meta]; setGames(next); ls.write(GAMES_KEY, next);
+        ls.write(GAME_PREFIX + id, data);
+        setGameId(id); ls.write(LAST_GAME_KEY, id);
+      }
+      function renameGame(){
+        if(!gameId) return;
+        const meta = games.find(g=>g.id===gameId);
+        const name = prompt("Rename game:", meta?.name || "Game"); if(!name) return;
+        const next = games.map(g=>g.id===gameId?{...g, name:name.trim(), updatedAt:nowISO()}:g);
+        setGames(next); ls.write(GAMES_KEY, next);
+      }
+      function duplicateGame(){
+        if(!gameId) return;
+        const meta = games.find(g=>g.id===gameId);
+        const name = prompt("Name for duplicate:", meta ? meta.name+" (copy)" : "Game copy"); if(!name) return;
+        const id = uid();
+        const m = { id, name: name.trim(), createdAt: nowISO(), updatedAt: nowISO() };
+        const data = { players, rounds, scores, ui };
+        const next = [...games, m]; setGames(next); ls.write(GAMES_KEY, next);
+        ls.write(GAME_PREFIX + id, data);
+        setGameId(id); ls.write(LAST_GAME_KEY, id);
+      }
+      function deleteGame(){
+        if(!gameId) return;
+        const meta = games.find(g=>g.id===gameId);
+        const ok = confirm(`Delete game “${meta?.name||"this game"}”? This cannot be undone.`);
+        if(!ok) return;
+        ls.remove(GAME_PREFIX + gameId);
+        const next = games.filter(g=>g.id!==gameId);
+        setGames(next);
+        if(next.length===0){
+          const id = uid();
+          const m={id, name:"New Game", createdAt:nowISO(), updatedAt:nowISO()};
+          const d=newDefaultGameData();
+          setGames([m]); setGameId(id);
+          ls.write(GAMES_KEY,[m]); ls.write(GAME_PREFIX+id,d); ls.write(LAST_GAME_KEY,id);
+        } else {
+          const sorted=[...next].sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+          const id=sorted[0].id; setGameId(id); ls.write(LAST_GAME_KEY,id);
+        }
+      }
+      function exportJSON(){
+        const meta = games.find(g=>g.id===gameId);
+        const payload = { id: gameId, name: meta?.name, players, rounds, scores, ui };
+        const blob = new Blob([JSON.stringify(payload,null,2)], {type:"application/json"});
+        const url = URL.createObjectURL(blob); const a = document.createElement("a");
+        a.href = url; a.download = `carioca-${(meta?.name||"game").replace(/\W+/g,'_')}.json`; a.click(); URL.revokeObjectURL(url);
+      }
+      function importJSON(){
+        const inp=document.createElement("input"); inp.type="file"; inp.accept=".json";
+        inp.onchange=()=>{
+          const file=inp.files?.[0]; if(!file) return;
+          const reader=new FileReader(); reader.onload=()=>{
+            try{
+              const data=JSON.parse(String(reader.result));
+              if(!data.players||!data.rounds) throw new Error("Invalid file");
+              const id=uid(); const name=prompt("Name for imported game:", data.name || `Imported ${games.length+1}`) || `Imported ${games.length+1}`;
+              const meta={id, name:name.trim(), createdAt:nowISO(), updatedAt:nowISO()};
+              const payload={players:data.players, rounds:data.rounds, scores:data.scores||{}, ui:data.ui||{playersCollapsed:false}};
+              const next=[...games, meta]; setGames(next); ls.write(GAMES_KEY,next);
+              ls.write(GAME_PREFIX+id, payload); setGameId(id); ls.write(LAST_GAME_KEY,id);
+            }catch(e){ alert("Could not import: " + (e?.message||e)); }
+          }; reader.readAsText(file);
+        };
+        inp.click();
+      }
+
+      // Render
+      return(<div className="max-w-6xl mx-auto p-4 space-y-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Carioca Scorekeeper</h1>
+            <span className="text-sm text-gray-600">(multiple games)</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="border rounded px-2 py-2" value={gameId||""} onChange={e=>setGameId(e.target.value)}>
+              {games.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <button className="border px-3 py-2 rounded" onClick={createGame}>New game</button>
+            <button className="border px-3 py-2 rounded" onClick={renameGame} disabled={!gameId}>Rename</button>
+            <button className="border px-3 py-2 rounded" onClick={duplicateGame} disabled={!gameId}>Duplicate</button>
+            <button className="border px-3 py-2 rounded text-red-600" onClick={deleteGame} disabled={!gameId}>Delete</button>
+            <button className="border px-3 py-2 rounded" onClick={exportJSON} disabled={!gameId}>Export</button>
+            <button className="border px-3 py-2 rounded" onClick={importJSON}>Import</button>
+          </div>
         </header>
 
         {lastDeleted && (
@@ -172,8 +272,7 @@
         <section className="p-4 border rounded-xl">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Players</h2>
-            <button className="text-sm border px-3 py-1 rounded"
-              onClick={()=>setUI({...ui, playersCollapsed: !ui.playersCollapsed})}>
+            <button className="text-sm border px-3 py-1 rounded" onClick={()=>setUI({...ui, playersCollapsed: !ui.playersCollapsed})}>
               {ui.playersCollapsed ? "Show players" : "Hide players"}
             </button>
           </div>
@@ -181,31 +280,22 @@
           {!ui.playersCollapsed && (
             <div className="mt-3">
               <div className="flex gap-2 items-center flex-wrap">
-                <input className="border px-3 py-2 rounded" placeholder="New player name"
-                  value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') handleAdd();}}/>
-                <button className="border px-3 py-2 rounded" onClick={handleAdd} disabled={!newName.trim()}>Add</button>
+                <input id="newPlayerInput" className="border px-3 py-2 rounded" placeholder="New player name"
+                  onKeyDown={e=>{ if(e.key==='Enter'){ const n = e.target.value.trim(); if(n){ handleAddPlayer(n); e.target.value=""; } } }}/>
+                <button className="border px-3 py-2 rounded" onClick={()=>{
+                  const el = document.getElementById('newPlayerInput'); const n = el.value.trim(); if(n){ handleAddPlayer(n); el.value=""; }
+                }}>Add</button>
               </div>
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {players.map(p=>(
                   <div key={p.id} className="flex items-center justify-between p-3 rounded bg-gray-50 border">
                     <div className="font-medium">
-                      {renamingId===p.id ? (
-                        <input autoFocus className="border rounded px-2 py-1" value={renameValue}
-                          onChange={e=>setRenameValue(e.target.value)}
-                          onKeyDown={e=>{ if(e.key==='Enter') saveRename(); if(e.key==='Escape') cancelRename(); }}/>
-                      ) : (<>
-                        {p.name} {leaderId===p.id && <span className="text-xs ml-2 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">leader</span>}
-                      </>)}
+                      {p.name} { (players.length>0 && p.id===leaderId) && <span className="text-xs ml-2 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">leader</span>}
                     </div>
                     <div className="flex gap-1">
-                      {renamingId===p.id ? (<>
-                        <button className="px-2 py-1 border rounded" onClick={saveRename}>Save</button>
-                        <button className="px-2 py-1 border rounded" onClick={cancelRename}>Cancel</button>
-                      </>) : (<>
-                        <button className="px-2 py-1 border rounded" onClick={()=>startRename(p.id)}>Rename</button>
-                        <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removePlayer(p.id)}>Remove</button>
-                      </>)}
+                      <button className="px-2 py-1 border rounded" onClick={()=>startRename(p.id)}>Rename</button>
+                      <button className="px-2 py-1 border rounded text-red-600" onClick={()=>removePlayer(p.id)}>Remove</button>
                     </div>
                   </div>
                 ))}
@@ -238,7 +328,7 @@
                     {players.map((p,ci)=>{
                       const key = `${r.id}:${p.id}`;
                       const val = scores[r.id]?.[p.id] ?? "";
-                      const isLeader = leaderId===p.id;
+                      const isLeader = players.length>0 && p.id===leaderId;
                       return (
                         <td key={key} className="p-2 text-right">
                           <input ref={registerRef(key)} inputMode="numeric"
@@ -257,7 +347,10 @@
                       );
                     })}
                     <td className="p-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>clearRound(r.id)}>Clear round</button>
+                      <button className="px-2 py-1 border rounded" onClick={()=>{
+                        const ok = confirm(`Clear all scores for “${r.label}”?`);
+                        if(ok) setScores(prev => ({ ...prev, [r.id]: {} }));
+                      }}>Clear round</button>
                     </td>
                   </tr>
                 ))}
