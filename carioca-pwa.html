@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carioca Scorekeeper</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#111827" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>html,body,#root{height:100%;}</style>
+</head>
+<body class="bg-white text-gray-900">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+    const uid = () => Math.random().toString(36).slice(2, 9);
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    const DEFAULT_ROUNDS = [
+      { id: uid(), label: "2 Sets of 3 (Tríos)" },
+      { id: uid(), label: "1 Set of 3 + 1 Run of 4" },
+      { id: uid(), label: "2 Runs of 4" },
+      { id: uid(), label: "3 Sets of 3" },
+      { id: uid(), label: "2 Sets of 3 + 1 Run of 4" },
+      { id: uid(), label: "1 Set of 3 + 2 Runs of 4" },
+      { id: uid(), label: "4 Sets of 3" },
+      { id: uid(), label: "3 Runs of 4" },
+      { id: uid(), label: "Dirty Run (Escalera)" },
+      { id: uid(), label: "Color Run (Escalera)" },
+      { id: uid(), label: "Royal Run (Escalera)" },
+    ];
+    const STORAGE_KEY = "carioca-scorekeeper-v1";
+    function useLocalStorage(key, initial) {
+      const [state, setState] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(key)) || initial; }
+        catch { return initial; }
+      });
+      useEffect(() => { try { localStorage.setItem(key, JSON.stringify(state)); } catch {} }, [key,state]);
+      return [state,setState];
+    }
+    function App(){
+      const [players,setPlayers]=useLocalStorage(STORAGE_KEY+":players",[
+        {id:uid(),name:"Player 1"},{id:uid(),name:"Player 2"}]);
+      const [rounds,setRounds]=useLocalStorage(STORAGE_KEY+":rounds",DEFAULT_ROUNDS);
+      const [scores,setScores]=useLocalStorage(STORAGE_KEY+":scores",{});
+      const [newName,setNewName]=useState("");
+      const totals=useMemo(()=>{let t={};players.forEach(p=>t[p.id]=0);rounds.forEach(r=>{let row=scores[r.id]||{};players.forEach(p=>{let v=row[p.id];if(typeof v==="number")t[p.id]+=v;});});return t;},[players,rounds,scores]);
+      const leaderId=useMemo(()=>{if(!players.length)return null;return players.slice().sort((a,b)=>totals[a.id]-totals[b.id])[0].id;},[players,totals]);
+      function setScore(rid,pid,val){setScores(prev=>({...prev,[rid]:{...(prev[rid]||{}),[pid]:val}}));}
+      return(<div className="p-4 space-y-6">
+        <section className="p-4 border rounded-xl"><h2>Players</h2>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="New player" className="border p-1"/>
+          <button onClick={()=>{if(newName.trim()){setPlayers([...players,{id:uid(),name:newName.trim()}]);setNewName("");}}}>Add</button>
+          <ul>{players.map(p=><li key={p.id}>{p.name} {leaderId===p.id?"🏆":""}</li>)}</ul>
+        </section>
+        <section className="p-4 border rounded-xl"><h2>Rounds</h2>
+          <table className="w-full"><thead><tr><th>Round</th>{players.map(p=><th key={p.id}>{p.name}</th>)}</tr></thead>
+          <tbody>{rounds.map((r,ri)=><tr key={r.id}><td>{ri+1}. {r.label}</td>
+            {players.map((p,ci)=>{const val=scores[r.id]?.[p.id]??"";return <td key={p.id}><input value={val} onChange={e=>{let raw=e.target.value.trim();let num=raw===""?null:Number(raw);if(raw!==""&&isNaN(num))return;setScore(r.id,p.id,num);}} className="border w-16 text-right"/></td>;})}
+          </tr>)}</tbody>
+          <tfoot><tr><td>Total</td>{players.map(p=><td key={p.id}>{totals[p.id]}</td>)}</tr></tfoot></table>
+        </section>
+      </div>);}
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(console.error)})
+    }
+  </script>
+</body>
+</html>
