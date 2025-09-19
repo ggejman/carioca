@@ -347,10 +347,16 @@
                       );
                     })}
                     <td className="p-2">
-                      <button className="px-2 py-1 border rounded" onClick={()=>{
-                        const ok = confirm(`Clear all scores for “${r.label}”?`);
-                        if(ok) setScores(prev => ({ ...prev, [r.id]: {} }));
-                      }}>Clear round</button>
+                      <button 
+                        className="p-2 border rounded hover:bg-gray-100"
+                        aria-label="Clear round"
+                        title="Clear round"
+                        onClick={()=>{
+                          const ok = confirm(`Clear all scores for “${r.label}”?`);
+                          if(ok) setScores(prev => ({ ...prev, [r.id]: {} }));
+                        }}>
+                        <span aria-hidden="true">🧹</span>
+                      </button>
                     </td>
                   </tr>
                 ))}
