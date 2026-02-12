@@ -20,6 +20,8 @@
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
+    const APP_VERSION = "v0.4";
+
     const NS = "carioca-game-v2";
     const GAMES_KEY = NS + ":games";
     const GAME_PREFIX = NS + ":game:";
@@ -30,6 +32,7 @@
     const RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
     const RED_SUITS = new Set(["♥","♦"]);
     const BLACK_SUITS = new Set(["♠","♣"]);
+    const SUIT_ORDER = ["♠", "♥", "♦", "♣"];
 
     const AI_LEVELS = ["Easy", "Medium", "Hard"];
     const ROUND_DEFS = [
@@ -246,6 +249,8 @@
         humanName,
         computerName: randomComputerName(),
         aiLevel,
+        handSortMode: "rank",
+        turnAddedCardIds: [],
         phase: "playing",
         roundIndex: 0,
         currentPlayer: "human",
@@ -302,9 +307,15 @@
         return ()=>clearTimeout(t);
       },[state]);
 
+      useEffect(()=>{
+        if(!state || state.handSortMode) return;
+        setState(prev => prev ? { ...prev, handSortMode: "rank" } : prev);
+      }, [state]);
+
       const roundDef = state ? ROUND_DEFS[state.roundIndex] : null;
       const humanHand = state?.round.hands.human || [];
       const computerHandCount = state?.round.hands.computer?.length || 0;
+      const humanObjectiveComplete = state ? objectiveDone(state.round.laid.human, roundDef.components) : false;
 
       function createGame(){
         const humanName = prompt("Your name?", "Player") || "Player";
@@ -335,6 +346,7 @@
           if(from === "discard") next.round.discard.pop(); else next.round.deck.pop();
           next.round.hands.human.push(card);
           next.hasDrawn = true;
+          next.turnAddedCardIds = [];
           next.message = `You drew ${cardLabel(card)} from ${from}.`;
           return next;
         });
@@ -342,6 +354,14 @@
 
       function toggleSelect(id){
         setSelected(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+      }
+
+      function setHandSortMode(mode){
+        setState(prev => {
+          if(!prev) return prev;
+          if(mode !== "rank" && mode !== "suit") return prev;
+          return { ...prev, handSortMode: mode };
+        });
       }
 
       function selectedCards(hand){
@@ -354,11 +374,12 @@
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           const cards = selectedCards(prev.round.hands.human);
           const done = prev.round.laid.human;
-          if(done.length >= roundDef.components.length) return { ...prev, message: "Objective already complete. Use add-to-meld." };
+          if(done.length >= roundDef.components.length) return { ...prev, message: "Objective already complete. You can only add cards to table melds now." };
           const comp = findMatchingComponent(roundDef.components, done, cards);
           if(!comp) return { ...prev, message: "Selected cards do not match an unmet objective meld." };
           const next = structuredClone(prev);
           next.round.tableMelds.push({ id: uid(), owner: "human", type: comp, cards });
+          next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
           next.round.laid.human.push(comp);
           const ids = new Set(cards.map(c=>c.id));
           next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
@@ -379,6 +400,7 @@
           const next = structuredClone(prev);
           const m = next.round.tableMelds.find(x=>x.id===meldTarget);
           m.cards.push(...cards);
+          next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
           const ids = new Set(cards.map(c=>c.id));
           next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
           next.message = `Added ${cards.length} card(s) to a meld.`;
@@ -392,13 +414,17 @@
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           const cards = selectedCards(prev.round.hands.human);
           if(cards.length!==1) return { ...prev, message:"Select exactly one card to discard." };
-          if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"You must complete objective before going out." };
-          const next = structuredClone(prev);
           const card = cards[0];
+          const wouldGoOut = prev.round.hands.human.length === 1;
+          if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
+            return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
+          }
+          const next = structuredClone(prev);
           next.round.discard.push(card);
           next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
           next.hasDrawn = false;
           next.currentPlayer = "computer";
+          next.turnAddedCardIds = [];
           next.message = `You discarded ${cardLabel(card)}.`;
           setSelected([]);
           return maybeFinishRound(next, "human");
@@ -420,6 +446,7 @@
             currentPlayer: prev.round.winner === "human" ? "human" : "computer",
             hasDrawn: false,
             round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
+            turnAddedCardIds: [],
             message: `Round ${nextRound+1} started.`
           };
         });
@@ -429,7 +456,10 @@
 
       return <div className="max-w-6xl mx-auto p-4 space-y-4">
         <header className="flex flex-wrap gap-2 items-center justify-between">
-          <h1 className="text-2xl font-bold">Carioca — Human vs Computer</h1>
+          <div>
+            <h1 className="text-2xl font-bold">Carioca — Human vs Computer</h1>
+            <p className="text-xs text-slate-500">Version {APP_VERSION}</p>
+          </div>
           <div className="flex gap-2 items-center">
             <select className="border rounded px-2 py-1" value={gameId||""} onChange={e=>switchGame(e.target.value)}>
               {games.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
@@ -464,7 +494,7 @@
           <div className="flex gap-2 mt-2">
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw deck ({state.round.deck.length})</button>
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Draw discard ({state.round.discard.length ? cardLabel(state.round.discard[state.round.discard.length-1]) : "—"})</button>
-            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={layObjective}>Lay objective meld</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete} onClick={layObjective}>Lay objective meld</button>
             <select className="border rounded px-2 py-1" value={meldTarget} onChange={e=>setMeldTarget(e.target.value)}>
               <option value="">Select meld target</option>
               {state.round.tableMelds.map(m=><option key={m.id} value={m.id}>{m.owner} - {componentDesc(m.type)} ({m.cards.length})</option>)}
@@ -475,9 +505,18 @@
         </section>
 
         <section className="p-3 rounded bg-white shadow">
-          <div className="font-semibold mb-2">Your hand ({humanHand.length})</div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="font-semibold">Your hand ({humanHand.length})</div>
+            <label className="text-xs text-slate-600 flex items-center gap-2">
+              Sort by
+              <select className="border rounded px-2 py-1 text-sm" value={state.handSortMode || "rank"} onChange={e=>setHandSortMode(e.target.value)}>
+                <option value="rank">Rank</option>
+                <option value="suit">Suit</option>
+              </select>
+            </label>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {sortHand(humanHand).map(c=>{
+            {sortHand(humanHand, state.handSortMode || "rank").map(c=>{
               const active = selected.includes(c.id);
               return <button key={c.id} onClick={()=>toggleSelect(c.id)} className={`px-2 py-1 rounded border ${active?"bg-blue-600 text-white":"bg-white"}`}>{cardLabel(c)}</button>
             })}
@@ -487,7 +526,7 @@
         <section className="p-3 rounded bg-white shadow">
           <div className="font-semibold">Table melds</div>
           <div className="grid md:grid-cols-2 gap-2 mt-2">
-            {state.round.tableMelds.map(m=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{m.owner} — {componentDesc(m.type)}</div><div>{m.cards.map(c=>cardLabel(c)).join(" ")}</div></div>)}
+            {state.round.tableMelds.map(m=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{m.owner} — {componentDesc(m.type)}</div><div className="flex flex-wrap gap-1">{m.cards.map(c=><span key={c.id} className={`px-1.5 py-0.5 rounded ${state.turnAddedCardIds?.includes(c.id) ? "bg-amber-200 ring-1 ring-amber-400" : ""}`}>{cardLabel(c)}</span>)}</div></div>)}
             {!state.round.tableMelds.length && <div className="text-sm text-slate-600">No melds yet.</div>}
           </div>
         </section>
@@ -504,12 +543,29 @@
       </div>;
     }
 
-    function sortHand(hand){
+    function sortHand(hand, mode="rank"){
       return [...hand].sort((a,b)=>{
         if(a.joker && !b.joker) return 1;
         if(!a.joker && b.joker) return -1;
         if(a.joker && b.joker) return 0;
-        return rankNum(a.rank) - rankNum(b.rank);
+
+        if(mode === "suit") {
+          const sa = SUIT_ORDER.indexOf(a.suit);
+          const sb = SUIT_ORDER.indexOf(b.suit);
+          if(sa !== sb) return sa - sb;
+          const ra = rankNum(a.rank, true);
+          const rb = rankNum(b.rank, true);
+          if(ra !== rb) return ra - rb;
+          return a.id.localeCompare(b.id);
+        }
+
+        const ra = rankNum(a.rank, true);
+        const rb = rankNum(b.rank, true);
+        if(ra !== rb) return ra - rb;
+        const sa = SUIT_ORDER.indexOf(a.suit);
+        const sb = SUIT_ORDER.indexOf(b.suit);
+        if(sa !== sb) return sa - sb;
+        return a.id.localeCompare(b.id);
       });
     }
 
@@ -539,6 +595,7 @@
     function runAiTurn(state){
       if(!state || state.phase!=="playing" || state.currentPlayer!=="computer") return state;
       const next = structuredClone(state);
+      next.turnAddedCardIds = [];
       const roundDef = ROUND_DEFS[next.roundIndex];
       const hand = next.round.hands.computer;
       const topDiscard = next.round.discard[next.round.discard.length-1];
@@ -558,6 +615,7 @@
         for(const m of newMelds){
           m.cards.forEach(c=>used.add(c.id));
           next.round.tableMelds.push({ id: uid(), owner: "computer", type: m.type, cards: m.cards });
+          next.turnAddedCardIds.push(...m.cards.map(c=>c.id));
           next.round.laid.computer.push(m.type);
         }
         next.round.hands.computer = next.round.hands.computer.filter(c=>!used.has(c.id));
@@ -572,6 +630,7 @@
             const target = next.round.tableMelds.find(m=>canLayoffToMeld(m,[card]));
             if(target){
               target.cards.push(card);
+              next.turnAddedCardIds.push(card.id);
               next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==card.id);
               progressed = next.aiLevel !== "Easy";
               if(next.aiLevel === "Easy") break;
@@ -590,6 +649,7 @@
       next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==discardCard.id);
       next.currentPlayer = "human";
       next.hasDrawn = false;
+      next.turnAddedCardIds = [];
       next.message = `${next.computerName} took a turn and discarded ${cardLabel(discardCard)}.`;
 
       return maybeFinishRound(next, "computer");
