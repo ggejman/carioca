@@ -392,12 +392,9 @@
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           const cards = selectedCards(prev.round.hands.human);
           if(cards.length!==1) return { ...prev, message:"Select exactly one card to discard." };
-          const card = cards[0];
-          const wouldGoOut = prev.round.hands.human.length === 1;
-          if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
-            return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
-          }
+          if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"You must complete objective before going out." };
           const next = structuredClone(prev);
+          const card = cards[0];
           next.round.discard.push(card);
           next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
           next.hasDrawn = false;
