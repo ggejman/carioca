@@ -64,6 +64,14 @@
     }
 
     function cardLabel(c){ return c.joker ? "🃏" : `${c.rank}${c.suit}`; }
+    function cardColorClass(c){
+      if(c.joker || !c.suit) return "text-slate-900";
+      return RED_SUITS.has(c.suit) ? "text-red-600" : "text-slate-900";
+    }
+    function cardColorWhenActive(c, active){
+      if(active) return "text-white";
+      return cardColorClass(c);
+    }
     function cardPoint(c){ return c.joker ? 30 : (CARD_POINTS[c.rank] ?? Number(c.rank)); }
 
     function newDeck(){
@@ -493,7 +501,7 @@
           <div className="text-sm">Computer hand: {computerHandCount} cards</div>
           <div className="flex gap-2 mt-2">
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw deck ({state.round.deck.length})</button>
-            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Draw discard ({state.round.discard.length ? cardLabel(state.round.discard[state.round.discard.length-1]) : "—"})</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Draw discard ({state.round.discard.length ? <span className={cardColorClass(state.round.discard[state.round.discard.length-1])}>{cardLabel(state.round.discard[state.round.discard.length-1])}</span> : "—"})</button>
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete} onClick={layObjective}>Lay objective meld</button>
             <select className="border rounded px-2 py-1" value={meldTarget} onChange={e=>setMeldTarget(e.target.value)}>
               <option value="">Select meld target</option>
@@ -518,7 +526,7 @@
           <div className="flex flex-wrap gap-2">
             {sortHand(humanHand, state.handSortMode || "rank").map(c=>{
               const active = selected.includes(c.id);
-              return <button key={c.id} onClick={()=>toggleSelect(c.id)} className={`px-2 py-1 rounded border ${active?"bg-blue-600 text-white":"bg-white"}`}>{cardLabel(c)}</button>
+              return <button key={c.id} onClick={()=>toggleSelect(c.id)} className={`px-2 py-1 rounded border ${active?"bg-blue-600 text-white":"bg-white"} ${cardColorWhenActive(c, active)}`}>{cardLabel(c)}</button>
             })}
           </div>
         </section>
@@ -526,7 +534,7 @@
         <section className="p-3 rounded bg-white shadow">
           <div className="font-semibold">Table melds</div>
           <div className="grid md:grid-cols-2 gap-2 mt-2">
-            {state.round.tableMelds.map(m=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{m.owner} — {componentDesc(m.type)}</div><div className="flex flex-wrap gap-1">{m.cards.map(c=><span key={c.id} className={`px-1.5 py-0.5 rounded ${state.turnAddedCardIds?.includes(c.id) ? "bg-amber-200 ring-1 ring-amber-400" : ""}`}>{cardLabel(c)}</span>)}</div></div>)}
+            {state.round.tableMelds.map(m=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{m.owner} — {componentDesc(m.type)}</div><div className="flex flex-wrap gap-1">{m.cards.map(c=><span key={c.id} className={`px-1.5 py-0.5 rounded ${cardColorClass(c)} ${state.turnAddedCardIds?.includes(c.id) ? "bg-amber-200 ring-1 ring-amber-400" : ""}`}>{cardLabel(c)}</span>)}</div></div>)}
             {!state.round.tableMelds.length && <div className="text-sm text-slate-600">No melds yet.</div>}
           </div>
         </section>
@@ -649,7 +657,6 @@
       next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==discardCard.id);
       next.currentPlayer = "human";
       next.hasDrawn = false;
-      next.turnAddedCardIds = [];
       next.message = `${next.computerName} took a turn and discarded ${cardLabel(discardCard)}.`;
 
       return maybeFinishRound(next, "computer");
