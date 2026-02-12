@@ -1,7 +1,9 @@
-
-const CACHE = 'carioca-v7';
+const CACHE = 'carioca-v9';
 const CORE_ASSETS = [
+  './',
+  './index.html',
   './carioca-pwa.html',
+  './carioca-game.html',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
@@ -26,7 +28,7 @@ self.addEventListener('fetch', e => {
       }
       return net;
     } catch {
-      return caches.match('./carioca-pwa.html');
+      return caches.match('./index.html');
     }
   })());
 });

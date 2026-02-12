@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carioca</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#111827" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>html,body,#root{height:100%;}</style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+
+    const NS = "carioca-game-v2";
+    const GAMES_KEY = NS + ":games";
+    const GAME_PREFIX = NS + ":game:";
+    const LAST_GAME_KEY = NS + ":last";
+    const uid = () => Math.random().toString(36).slice(2, 10);
+
+    const SUITS = ["♠","♥","♦","♣"];
+    const RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+    const RED_SUITS = new Set(["♥","♦"]);
+    const BLACK_SUITS = new Set(["♠","♣"]);
+
+    const AI_LEVELS = ["Easy", "Medium", "Hard"];
+    const ROUND_DEFS = [
+      { name: "Two three-of-a-kind", components: ["set3","set3"] },
+      { name: "One straight + one three-of-a-kind", components: ["straight4","set3"] },
+      { name: "Two straights", components: ["straight4","straight4"] },
+      { name: "Three three-of-a-kind", components: ["set3","set3","set3"] },
+      { name: "Two three-of-a-kind + one straight", components: ["set3","set3","straight4"] },
+      { name: "Two straights + one three-of-a-kind", components: ["straight4","straight4","set3"] },
+      { name: "Four three-of-a-kind", components: ["set3","set3","set3","set3"] },
+      { name: "Three straights", components: ["straight4","straight4","straight4"] },
+      { name: "Crazy straight", components: ["crazy13"] },
+      { name: "Colour straight", components: ["color13"] },
+      { name: "Royal straight", components: ["royal13"] },
+    ];
+
+    const CARD_POINTS = { A:20, J:10, Q:10, K:10, JOKER:30 };
+
+    const ADJ = ["Bruno","Rafa","Mateo","Nico","Julia","Ines","Sofia","Luca","Dario","Tiago","Carla","Maya"];
+    const LAST = ["Silva","Costa","Pereira","Ramos","Lima","Cardoso","Mendes","Oliveira","Santos","Rocha","Almeida","Nunes"];
+
+    const ls = {
+      read(k, fb){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } },
+      write(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+    };
+
+    function randomComputerName(){
+      return `${ADJ[Math.floor(Math.random()*ADJ.length)]} ${LAST[Math.floor(Math.random()*LAST.length)]}`;
+    }
+
+    function cardLabel(c){ return c.joker ? "🃏" : `${c.rank}${c.suit}`; }
+    function cardPoint(c){ return c.joker ? 30 : (CARD_POINTS[c.rank] ?? Number(c.rank)); }
+
+    function newDeck(){
+      const deck = [];
+      for(let d=0; d<2; d++){
+        for(const s of SUITS){
+          for(const r of RANKS){ deck.push({ id: uid(), rank:r, suit:s, joker:false }); }
+        }
+        deck.push({ id: uid(), rank:"JOKER", suit:null, joker:true });
+        deck.push({ id: uid(), rank:"JOKER", suit:null, joker:true });
+      }
+      return shuffle(deck);
+    }
+
+    function shuffle(arr){
+      const out = [...arr];
+      for(let i=out.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [out[i], out[j]] = [out[j], out[i]];
+      }
+      return out;
+    }
+
+    function dealRound(){
+      const deck = newDeck();
+      const hands = { human: [], computer: [] };
+      for(let i=0;i<12;i++){
+        hands.human.push(deck.pop());
+        hands.computer.push(deck.pop());
+      }
+      const discard = [deck.pop()];
+      return { deck, discard, hands };
+    }
+
+    function componentDesc(c){
+      return ({ set3:"Set of 3", straight4:"Straight of 4", crazy13:"Crazy straight (13)", color13:"Colour straight (13)", royal13:"Royal straight (13)" })[c];
+    }
+
+    function rankNum(rank, aceHigh=false){
+      if(rank === "A") return aceHigh ? 14 : 1;
+      if(rank === "J") return 11;
+      if(rank === "Q") return 12;
+      if(rank === "K") return 13;
+      return Number(rank);
+    }
+
+    function canFormSet(cards){
+      if(cards.length !== 3) return false;
+      const naturals = cards.filter(c=>!c.joker);
+      if(!naturals.length) return true;
+      return naturals.every(c => c.rank === naturals[0].rank);
+    }
+
+    function validateStraight(cards, kind){
+      if(kind === "straight4") return canBuildStraight(cards, 4, "any");
+      if(kind === "crazy13") return canBuildStraight(cards, 13, "any", true);
+      if(kind === "color13") return canBuildStraight(cards, 13, "color", true);
+      if(kind === "royal13") return canBuildStraight(cards, 13, "suit", true);
+      return false;
+    }
+
+    function canBuildStraight(cards, len, lock, noAdjacentJokers=false){
+      if(cards.length !== len) return false;
+      const jokers = cards.filter(c=>c.joker);
+      const naturals = cards.filter(c=>!c.joker);
+
+      let targets = [];
+      if(len === 13) {
+        targets = [Array.from({length:13}, (_,i)=>i+1)]; // A..K
+      } else {
+        for(let s=1;s<=10;s++) targets.push([s,s+1,s+2,s+3]);
+        targets.push([11,12,13,14]); // JQKA
+      }
+
+      for(const seq of targets){
+        const used = new Set();
+        const slots = Array(seq.length).fill(null);
+        let ok = true;
+        for(const card of naturals){
+          let placed = false;
+          for(let i=0;i<seq.length;i++){
+            if(used.has(i)) continue;
+            const v = rankNum(card.rank, seq.includes(14));
+            if(v !== seq[i]) continue;
+            if(lock === "color"){
+              const colorSet = RED_SUITS.has(card.suit) ? RED_SUITS : BLACK_SUITS;
+              const existing = naturals.find(n => n !== card && n.suit && slots.some((s,idx)=>s===n && (seq[idx]===rankNum(n.rank, seq.includes(14)))));
+              if(existing && !colorSet.has(existing.suit)) continue;
+            }
+            if(lock === "suit"){
+              const existingSuit = naturals[0]?.suit;
+              if(existingSuit && card.suit !== existingSuit) continue;
+            }
+            slots[i] = card;
+            used.add(i);
+            placed = true;
+            break;
+          }
+          if(!placed){ ok = false; break; }
+        }
+        if(!ok) continue;
+        let j = 0;
+        for(let i=0;i<slots.length;i++) if(!slots[i]) slots[i] = {joker:true, id:`j-${j++}`};
+        if(noAdjacentJokers){
+          for(let i=1;i<slots.length;i++) if(slots[i].joker && slots[i-1].joker) { ok = false; break; }
+          if(!ok) continue;
+        }
+        if(lock === "color"){
+          const naturalColors = naturals.map(c=>RED_SUITS.has(c.suit)?"red":"black");
+          if(naturalColors.length && new Set(naturalColors).size > 1) continue;
+        }
+        if(lock === "suit"){
+          const suits = naturals.map(c=>c.suit);
+          if(suits.length && new Set(suits).size > 1) continue;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    function validateMeld(cards, type){
+      if(type === "set3") return canFormSet(cards);
+      return validateStraight(cards, type);
+    }
+
+    function objectiveDone(playerMelds, components){
+      return playerMelds.length >= components.length;
+    }
+
+    function groupByRank(cards){
+      const m = new Map();
+      cards.forEach(c=>{ if(c.joker) return; const a = m.get(c.rank)||[]; a.push(c); m.set(c.rank,a); });
+      return m;
+    }
+
+    function findObjectiveMelds(hand, components, level){
+      const idxMap = new Map(hand.map((c,i)=>[c.id,i]));
+      const result = [];
+      let remaining = [...hand];
+      const order = level === "Hard" ? components : shuffle(components);
+      for(const comp of order){
+        let found = null;
+        const combos = combinations(remaining, comp === "set3" ? 3 : (comp === "straight4" ? 4 : 13));
+        for(const cards of combos){
+          if(validateMeld(cards, comp)) { found = cards; break; }
+        }
+        if(!found) return [];
+        result.push({ type: comp, cards: found });
+        const ids = new Set(found.map(c=>c.id));
+        remaining = remaining.filter(c=>!ids.has(c.id));
+      }
+      return result;
+    }
+
+    function combinations(arr, k){
+      const out = [];
+      const n = arr.length;
+      function rec(start, path){
+        if(path.length===k){ out.push([...path]); return; }
+        for(let i=start;i<n;i++){
+          path.push(arr[i]); rec(i+1,path); path.pop();
+        }
+      }
+      if(k<=arr.length) rec(0,[]);
+      return out;
+    }
+
+    function canLayoffToMeld(meld, cards){
+      if(!cards.length) return false;
+      const merged = [...meld.cards, ...cards];
+      if(meld.type === "set3"){
+        const naturals = merged.filter(c=>!c.joker);
+        return naturals.length === 0 || naturals.every(c=>c.rank === naturals[0].rank);
+      }
+      const type = meld.type;
+      const straightType = type === "straight4" ? "straight4" : type;
+      return canBuildStraight(merged, merged.length, straightType === "straight4" ? "any" : (straightType === "color13" ? "color" : straightType === "royal13" ? "suit" : "any"), straightType !== "straight4");
+    }
+
+    function newGameState(humanName, aiLevel){
+      const { deck, discard, hands } = dealRound();
+      return {
+        humanName,
+        computerName: randomComputerName(),
+        aiLevel,
+        phase: "playing",
+        roundIndex: 0,
+        currentPlayer: "human",
+        hasDrawn: false,
+        round: {
+          deck,
+          discard,
+          hands,
+          tableMelds: [],
+          laid: { human: [], computer: [] },
+          winner: null,
+        },
+        totals: { human: 0, computer: 0 },
+        history: [],
+        message: "Game started.",
+      };
+    }
+
+    function App(){
+      const [games, setGames] = useState(()=>ls.read(GAMES_KEY, []));
+      const [gameId, setGameId] = useState(()=>ls.read(LAST_GAME_KEY, null));
+      const [state, setState] = useState(null);
+      const [selected, setSelected] = useState([]);
+      const [meldTarget, setMeldTarget] = useState("");
+
+      useEffect(()=>{
+        if(!games.length){
+          const id = uid();
+          const meta = { id, name: "Game 1", updatedAt: Date.now() };
+          const s = newGameState("Player", "Medium");
+          ls.write(GAME_PREFIX+id, s);
+          ls.write(GAMES_KEY, [meta]);
+          ls.write(LAST_GAME_KEY, id);
+          setGames([meta]); setGameId(id); setState(s);
+          return;
+        }
+        const id = gameId || games[0].id;
+        const saved = ls.read(GAME_PREFIX+id, null);
+        if(saved){ setGameId(id); setState(saved); }
+      },[]);
+
+      useEffect(()=>{
+        if(!state || !gameId) return;
+        ls.write(GAME_PREFIX+gameId, state);
+        ls.write(LAST_GAME_KEY, gameId);
+        const next = games.map(g=>g.id===gameId?{...g, updatedAt:Date.now()}:g);
+        setGames(next);
+        ls.write(GAMES_KEY, next);
+      },[state]);
+
+      useEffect(()=>{
+        if(!state || state.phase !== "playing" || state.currentPlayer !== "computer") return;
+        const t = setTimeout(()=>setState(prev=>runAiTurn(prev)), 700);
+        return ()=>clearTimeout(t);
+      },[state]);
+
+      const roundDef = state ? ROUND_DEFS[state.roundIndex] : null;
+      const humanHand = state?.round.hands.human || [];
+      const computerHandCount = state?.round.hands.computer?.length || 0;
+
+      function createGame(){
+        const humanName = prompt("Your name?", "Player") || "Player";
+        const aiLevel = prompt("AI level: Easy / Medium / Hard", "Medium") || "Medium";
+        const level = AI_LEVELS.includes(aiLevel) ? aiLevel : "Medium";
+        const id = uid();
+        const name = `${humanName} vs AI`;
+        const meta = { id, name, updatedAt: Date.now() };
+        const s = newGameState(humanName, level);
+        const next = [...games, meta];
+        setGames(next); ls.write(GAMES_KEY, next);
+        setGameId(id); setState(s);
+        ls.write(GAME_PREFIX+id, s); ls.write(LAST_GAME_KEY, id);
+      }
+
+      function switchGame(id){
+        const s = ls.read(GAME_PREFIX+id, null);
+        if(s){ setGameId(id); setState(s); setSelected([]); }
+      }
+
+      function draw(from){
+        setState(prev=>{
+          if(!prev || prev.phase !== "playing" || prev.currentPlayer !== "human" || prev.hasDrawn) return prev;
+          const src = from === "discard" ? prev.round.discard : prev.round.deck;
+          if(!src.length) return { ...prev, message: "No cards available there." };
+          const card = src[src.length-1];
+          const next = structuredClone(prev);
+          if(from === "discard") next.round.discard.pop(); else next.round.deck.pop();
+          next.round.hands.human.push(card);
+          next.hasDrawn = true;
+          next.message = `You drew ${cardLabel(card)} from ${from}.`;
+          return next;
+        });
+      }
+
+      function toggleSelect(id){
+        setSelected(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+      }
+
+      function selectedCards(hand){
+        const m = new Set(selected);
+        return hand.filter(c=>m.has(c.id));
+      }
+
+      function layObjective(){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
+          const cards = selectedCards(prev.round.hands.human);
+          const done = prev.round.laid.human;
+          if(done.length >= roundDef.components.length) return { ...prev, message: "Objective already complete. Use add-to-meld." };
+          const comp = findMatchingComponent(roundDef.components, done, cards);
+          if(!comp) return { ...prev, message: "Selected cards do not match an unmet objective meld." };
+          const next = structuredClone(prev);
+          next.round.tableMelds.push({ id: uid(), owner: "human", type: comp, cards });
+          next.round.laid.human.push(comp);
+          const ids = new Set(cards.map(c=>c.id));
+          next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
+          next.message = `You laid ${componentDesc(comp)}.`;
+          setSelected([]);
+          return maybeFinishRound(next, "human");
+        });
+      }
+
+      function addToMeld(){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
+          if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Complete your objective first." };
+          const target = prev.round.tableMelds.find(m=>m.id===meldTarget);
+          if(!target) return { ...prev, message:"Choose a target meld." };
+          const cards = selectedCards(prev.round.hands.human);
+          if(!canLayoffToMeld(target, cards)) return { ...prev, message:"Those cards cannot be added to that meld." };
+          const next = structuredClone(prev);
+          const m = next.round.tableMelds.find(x=>x.id===meldTarget);
+          m.cards.push(...cards);
+          const ids = new Set(cards.map(c=>c.id));
+          next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
+          next.message = `Added ${cards.length} card(s) to a meld.`;
+          setSelected([]);
+          return maybeFinishRound(next, "human");
+        });
+      }
+
+      function discard(){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
+          const cards = selectedCards(prev.round.hands.human);
+          if(cards.length!==1) return { ...prev, message:"Select exactly one card to discard." };
+          const card = cards[0];
+          const wouldGoOut = prev.round.hands.human.length === 1;
+          if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
+            return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
+          }
+          const next = structuredClone(prev);
+          next.round.discard.push(card);
+          next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
+          next.hasDrawn = false;
+          next.currentPlayer = "computer";
+          next.message = `You discarded ${cardLabel(card)}.`;
+          setSelected([]);
+          return maybeFinishRound(next, "human");
+        });
+      }
+
+      function endRoundNext(){
+        setState(prev=>{
+          if(!prev || prev.phase !== "roundOver") return prev;
+          const nextRound = prev.roundIndex + 1;
+          if(nextRound >= ROUND_DEFS.length){
+            return { ...prev, phase:"gameOver", message:"Game over." };
+          }
+          const { deck, discard, hands } = dealRound();
+          return {
+            ...prev,
+            phase: "playing",
+            roundIndex: nextRound,
+            currentPlayer: prev.round.winner === "human" ? "human" : "computer",
+            hasDrawn: false,
+            round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
+            message: `Round ${nextRound+1} started.`
+          };
+        });
+      }
+
+      if(!state) return <div className="p-4">Loading…</div>;
+
+      return <div className="max-w-6xl mx-auto p-4 space-y-4">
+        <header className="flex flex-wrap gap-2 items-center justify-between">
+          <h1 className="text-2xl font-bold">Carioca — Human vs Computer</h1>
+          <div className="flex gap-2 items-center">
+            <select className="border rounded px-2 py-1" value={gameId||""} onChange={e=>switchGame(e.target.value)}>
+              {games.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <button className="px-3 py-1 rounded bg-slate-800 text-white" onClick={createGame}>New Game</button>
+          </div>
+        </header>
+
+        <section className="grid md:grid-cols-3 gap-3">
+          <div className="p-3 rounded bg-white shadow">
+            <div className="font-semibold">Players</div>
+            <div>{state.humanName} (You)</div>
+            <div>{state.computerName} (AI: {state.aiLevel})</div>
+          </div>
+          <div className="p-3 rounded bg-white shadow">
+            <div className="font-semibold">Round {state.roundIndex+1}: {roundDef.name}</div>
+            <ul className="text-sm list-disc ml-5">
+              {roundDef.components.map((c,i)=><li key={i}>{componentDesc(c)}</li>)}
+            </ul>
+          </div>
+          <div className="p-3 rounded bg-white shadow">
+            <div className="font-semibold">Score</div>
+            <div>{state.humanName}: {state.totals.human}</div>
+            <div>{state.computerName}: {state.totals.computer}</div>
+          </div>
+        </section>
+
+        <section className="p-3 rounded bg-white shadow">
+          <div className="font-semibold">Turn: {state.currentPlayer === "human" ? "You" : state.computerName}</div>
+          <div className="text-sm text-slate-700">{state.message}</div>
+          <div className="text-sm">Computer hand: {computerHandCount} cards</div>
+          <div className="flex gap-2 mt-2">
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw deck ({state.round.deck.length})</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Draw discard ({state.round.discard.length ? cardLabel(state.round.discard[state.round.discard.length-1]) : "—"})</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={layObjective}>Lay objective meld</button>
+            <select className="border rounded px-2 py-1" value={meldTarget} onChange={e=>setMeldTarget(e.target.value)}>
+              <option value="">Select meld target</option>
+              {state.round.tableMelds.map(m=><option key={m.id} value={m.id}>{m.owner} - {componentDesc(m.type)} ({m.cards.length})</option>)}
+            </select>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={addToMeld}>Add to meld</button>
+            <button className="px-2 py-1 border rounded bg-slate-900 text-white" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={discard}>Discard</button>
+          </div>
+        </section>
+
+        <section className="p-3 rounded bg-white shadow">
+          <div className="font-semibold mb-2">Your hand ({humanHand.length})</div>
+          <div className="flex flex-wrap gap-2">
+            {sortHand(humanHand).map(c=>{
+              const active = selected.includes(c.id);
+              return <button key={c.id} onClick={()=>toggleSelect(c.id)} className={`px-2 py-1 rounded border ${active?"bg-blue-600 text-white":"bg-white"}`}>{cardLabel(c)}</button>
+            })}
+          </div>
+        </section>
+
+        <section className="p-3 rounded bg-white shadow">
+          <div className="font-semibold">Table melds</div>
+          <div className="grid md:grid-cols-2 gap-2 mt-2">
+            {state.round.tableMelds.map(m=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{m.owner} — {componentDesc(m.type)}</div><div>{m.cards.map(c=>cardLabel(c)).join(" ")}</div></div>)}
+            {!state.round.tableMelds.length && <div className="text-sm text-slate-600">No melds yet.</div>}
+          </div>
+        </section>
+
+        {state.phase === "roundOver" && <section className="p-3 rounded bg-emerald-50 border border-emerald-300">
+          <div className="font-semibold">Round complete. Winner: {state.round.winner === "human" ? state.humanName : state.computerName}</div>
+          <button className="mt-2 px-3 py-1 rounded bg-emerald-700 text-white" onClick={endRoundNext}>Start next round</button>
+        </section>}
+
+        {state.phase === "gameOver" && <section className="p-3 rounded bg-indigo-50 border border-indigo-300">
+          <div className="font-semibold">Game over</div>
+          <div>{state.totals.human <= state.totals.computer ? `${state.humanName} wins` : `${state.computerName} wins`}</div>
+        </section>}
+      </div>;
+    }
+
+    function sortHand(hand){
+      return [...hand].sort((a,b)=>{
+        if(a.joker && !b.joker) return 1;
+        if(!a.joker && b.joker) return -1;
+        if(a.joker && b.joker) return 0;
+        return rankNum(a.rank) - rankNum(b.rank);
+      });
+    }
+
+    function findMatchingComponent(allComponents, doneComponents, cards){
+      const remaining = [...allComponents];
+      doneComponents.forEach(d=>{
+        const i = remaining.indexOf(d);
+        if(i>=0) remaining.splice(i,1);
+      });
+      for(const comp of remaining){ if(validateMeld(cards, comp)) return comp; }
+      return null;
+    }
+
+    function maybeFinishRound(state, player){
+      if(state.round.hands[player].length > 0) return state;
+      const other = player === "human" ? "computer" : "human";
+      const penalty = state.round.hands[other].reduce((a,c)=>a+cardPoint(c),0);
+      const next = structuredClone(state);
+      next.totals[other] += penalty;
+      next.history.push({ round: state.roundIndex+1, winner: player, penaltyTo: other, points: penalty });
+      next.phase = "roundOver";
+      next.round.winner = player;
+      next.message = `${player} ended round. ${other} +${penalty} points.`;
+      return next;
+    }
+
+    function runAiTurn(state){
+      if(!state || state.phase!=="playing" || state.currentPlayer!=="computer") return state;
+      const next = structuredClone(state);
+      const roundDef = ROUND_DEFS[next.roundIndex];
+      const hand = next.round.hands.computer;
+      const topDiscard = next.round.discard[next.round.discard.length-1];
+
+      // draw
+      const shouldTakeDiscard = topDiscard && aiWantsCard(topDiscard, hand, roundDef.components, next.round.laid.computer, next.aiLevel);
+      if(shouldTakeDiscard){ hand.push(next.round.discard.pop()); }
+      else if(next.round.deck.length){ hand.push(next.round.deck.pop()); }
+      next.hasDrawn = true;
+
+      // lay objective melds
+      const remainingComps = [...roundDef.components];
+      next.round.laid.computer.forEach(d=>{ const i=remainingComps.indexOf(d); if(i>=0) remainingComps.splice(i,1); });
+      const newMelds = findObjectiveMelds(hand, remainingComps, next.aiLevel);
+      if(newMelds.length){
+        const used = new Set();
+        for(const m of newMelds){
+          m.cards.forEach(c=>used.add(c.id));
+          next.round.tableMelds.push({ id: uid(), owner: "computer", type: m.type, cards: m.cards });
+          next.round.laid.computer.push(m.type);
+        }
+        next.round.hands.computer = next.round.hands.computer.filter(c=>!used.has(c.id));
+      }
+
+      // layoff if objective done
+      if(objectiveDone(next.round.laid.computer, roundDef.components)){
+        let progressed = true;
+        while(progressed){
+          progressed = false;
+          for(const card of [...next.round.hands.computer]){
+            const target = next.round.tableMelds.find(m=>canLayoffToMeld(m,[card]));
+            if(target){
+              target.cards.push(card);
+              next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==card.id);
+              progressed = next.aiLevel !== "Easy";
+              if(next.aiLevel === "Easy") break;
+            }
+          }
+        }
+      }
+
+      if(next.round.hands.computer.length === 0){
+        return maybeFinishRound(next, "computer");
+      }
+
+      // discard
+      const discardCard = chooseDiscard(next.round.hands.computer, roundDef.components, next.round.laid.computer, next.aiLevel);
+      next.round.discard.push(discardCard);
+      next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==discardCard.id);
+      next.currentPlayer = "human";
+      next.hasDrawn = false;
+      next.message = `${next.computerName} took a turn and discarded ${cardLabel(discardCard)}.`;
+
+      return maybeFinishRound(next, "computer");
+    }
+
+    function aiWantsCard(card, hand, components, done, level){
+      if(level === "Easy") return Math.random() < 0.25;
+      const remaining = [...components];
+      done.forEach(d=>{ const i=remaining.indexOf(d); if(i>=0) remaining.splice(i,1); });
+      if(!remaining.length) return false;
+      if(card.joker) return true;
+      const rankCount = hand.filter(c=>!c.joker && c.rank===card.rank).length;
+      if(remaining.includes("set3") && rankCount>=1) return true;
+      if(remaining.some(c=>c.includes("straight"))){
+        const num = rankNum(card.rank);
+        const near = hand.some(h=>!h.joker && Math.abs(rankNum(h.rank)-num)<=2);
+        if(near) return level === "Hard" ? true : Math.random() < 0.6;
+      }
+      return false;
+    }
+
+    function chooseDiscard(hand, components, done, level){
+      if(level === "Easy") return hand[Math.floor(Math.random()*hand.length)];
+      const remaining = [...components];
+      done.forEach(d=>{ const i=remaining.indexOf(d); if(i>=0) remaining.splice(i,1); });
+      const scored = hand.map(c=>{
+        let keep = c.joker ? 100 : 0;
+        const same = hand.filter(h=>!h.joker && !c.joker && h.rank===c.rank).length;
+        if(remaining.includes("set3")) keep += same*20;
+        if(remaining.some(r=>r.includes("straight")) && !c.joker){
+          const n = rankNum(c.rank);
+          const near = hand.filter(h=>!h.joker && Math.abs(rankNum(h.rank)-n)<=2).length;
+          keep += near*8;
+        }
+        keep -= cardPoint(c);
+        return { c, keep };
+      }).sort((a,b)=>a.keep-b.keep);
+      return scored[0].c;
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(console.error)});
+    }
+  </script>
+
+</body>
+</html>

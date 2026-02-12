@@ -1,9 +1,9 @@
 {
-  "name": "Carioca Scorekeeper",
+  "name": "Carioca Apps",
   "short_name": "Carioca",
   "display": "standalone",
   "scope": "./",
-  "start_url": "./carioca-pwa.html",
+  "start_url": "./index.html",
   "background_color": "#111827",
   "theme_color": "#111827",
   "icons": [

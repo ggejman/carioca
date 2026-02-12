@@ -1,6 +1,33 @@
 <!doctype html>
-<meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=./carioca-pwa.html">
-<link rel="canonical" href="./carioca-pwa.html">
-<title>Loading…</title>
-<p>Loading Carioca Scorekeeper… If you are not redirected, <a href="./carioca-pwa.html">tap here</a>.</p>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carioca Apps</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-900">
+  <main class="max-w-3xl mx-auto px-4 py-10">
+    <h1 class="text-3xl font-bold mb-3">Carioca</h1>
+    <p class="text-slate-700 mb-8">Choose which app you want to use.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <a class="block p-5 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition" href="./carioca-pwa.html">
+        <h2 class="text-xl font-semibold mb-1">Scorekeeper</h2>
+        <p class="text-sm text-slate-600">Track players, rounds, and points manually across saved local games.</p>
+      </a>
+      <a class="block p-5 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition" href="./carioca-game.html">
+        <h2 class="text-xl font-semibold mb-1">Play vs Computer</h2>
+        <p class="text-sm text-slate-600">Play the 2-player Carioca variant game with AI difficulty levels and local resume.</p>
+      </a>
+    </div>
+  </main>
+
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(console.error)});
+    }
+  </script>
+
+</body>
+</html>
