@@ -137,15 +137,26 @@
       return rankNum(card.rank, false);
     }
 
-    function sameSuitNaturals(cards){
+    function getStraightSuitMode(kind){
+      if(kind === "crazy13") return "any";
+      if(kind === "color13") return "color";
+      return "suit";
+    }
+
+    function naturalsMatchSuitMode(cards, mode){
       const naturals = cards.filter(c=>!c.joker);
       if(!naturals.length) return true;
+      if(mode === "any") return true;
+      if(mode === "color"){
+        const color = RED_SUITS.has(naturals[0].suit) ? "red" : "black";
+        return naturals.every(c => (RED_SUITS.has(c.suit) ? "red" : "black") === color);
+      }
       return naturals.every(c=>c.suit === naturals[0].suit);
     }
 
-    function findUnorderedStraightAssignment(cards, len){
+    function findUnorderedStraightAssignment(cards, len, mode="suit"){
       if(cards.length !== len || len < 3 || len > 13) return null;
-      if(!sameSuitNaturals(cards)) return null;
+      if(!naturalsMatchSuitMode(cards, mode)) return null;
       const naturals = cards.filter(c=>!c.joker);
       const jokers = cards.filter(c=>c.joker);
       const naturalByRank = new Map();
@@ -175,10 +186,10 @@
       return null;
     }
 
-    function resolveOrderedStraight(cards){
+    function resolveOrderedStraight(cards, mode="suit"){
       const len = cards.length;
       if(len < 3 || len > 13) return null;
-      if(!sameSuitNaturals(cards)) return null;
+      if(!naturalsMatchSuitMode(cards, mode)) return null;
       for(let start=1; start<=13; start++){
         let ok = true;
         const ranks = [];
@@ -193,29 +204,30 @@
       return null;
     }
 
-    function normalizeStraightCards(cards){
-      const assignment = findUnorderedStraightAssignment(cards, cards.length);
+    function normalizeStraightCards(cards, kind){
+      const assignment = findUnorderedStraightAssignment(cards, cards.length, getStraightSuitMode(kind));
       return assignment ? assignment.slots : null;
     }
 
     function validateStraight(cards, kind){
       const len = kind === "straight4" ? 4 : 13;
-      return !!findUnorderedStraightAssignment(cards, len);
+      return !!findUnorderedStraightAssignment(cards, len, getStraightSuitMode(kind));
     }
 
-    function canExtendStraightOnSide(meldCards, addedCards, side){
+    function canExtendStraightOnSide(meldCards, addedCards, side, kind){
       if(!addedCards.length) return null;
+      const mode = getStraightSuitMode(kind);
       let base = meldCards;
-      let baseState = resolveOrderedStraight(base);
+      let baseState = resolveOrderedStraight(base, mode);
       if(!baseState){
-        base = normalizeStraightCards(meldCards) || meldCards;
-        baseState = resolveOrderedStraight(base);
+        base = normalizeStraightCards(meldCards, kind) || meldCards;
+        baseState = resolveOrderedStraight(base, mode);
       }
       if(!baseState) return null;
 
       const candidate = side === "left" ? [...addedCards, ...base] : [...base, ...addedCards];
       if(candidate.length > 13) return null;
-      const candidateState = resolveOrderedStraight(candidate);
+      const candidateState = resolveOrderedStraight(candidate, mode);
       if(!candidateState) return null;
 
       const offset = side === "left" ? addedCards.length : 0;
@@ -279,7 +291,7 @@
         const naturals = merged.filter(c=>!c.joker);
         return naturals.length === 0 || naturals.every(c=>c.rank === naturals[0].rank) ? merged : null;
       }
-      return canExtendStraightOnSide(meld.cards, cards, "right") || canExtendStraightOnSide(meld.cards, cards, "left");
+      return canExtendStraightOnSide(meld.cards, cards, "right", meld.type) || canExtendStraightOnSide(meld.cards, cards, "left", meld.type);
     }
 
     function canLayoffToMeld(meld, cards){
@@ -421,7 +433,7 @@
           const comp = findMatchingComponent(roundDef.components, done, cards);
           if(!comp) return { ...prev, message: "Selected cards do not match an unmet objective meld." };
           const next = structuredClone(prev);
-          const meldCards = comp === "set3" ? cards : normalizeStraightCards(cards);
+          const meldCards = comp === "set3" ? cards : normalizeStraightCards(cards, comp);
           next.round.tableMelds.push({ id: uid(), owner: "human", type: comp, cards: meldCards || cards });
           next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
           next.round.laid.human.push(comp);
@@ -660,7 +672,7 @@
         const used = new Set();
         for(const m of newMelds){
           m.cards.forEach(c=>used.add(c.id));
-          const meldCards = m.type === "set3" ? m.cards : normalizeStraightCards(m.cards);
+          const meldCards = m.type === "set3" ? m.cards : normalizeStraightCards(m.cards, m.type);
           next.round.tableMelds.push({ id: uid(), owner: "computer", type: m.type, cards: meldCards || m.cards });
           next.turnAddedCardIds.push(...m.cards.map(c=>c.id));
           next.round.laid.computer.push(m.type);
