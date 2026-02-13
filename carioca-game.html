@@ -124,6 +124,8 @@
 
     function canFormSet(cards){
       if(cards.length !== 3) return false;
+      const jokers = cards.filter(c=>c.joker);
+      if(jokers.length > 1) return false;
       const naturals = cards.filter(c=>!c.joker);
       if(!naturals.length) return true;
       return naturals.every(c => c.rank === naturals[0].rank);
@@ -310,6 +312,7 @@
         roundIndex: 0,
         currentPlayer: "human",
         hasDrawn: false,
+        laidObjectiveThisTurn: false,
         round: {
           deck,
           discard,
@@ -367,6 +370,11 @@
         setState(prev => prev ? { ...prev, handSortMode: "rank" } : prev);
       }, [state]);
 
+      useEffect(()=>{
+        if(!state || typeof state.laidObjectiveThisTurn === "boolean") return;
+        setState(prev => prev ? { ...prev, laidObjectiveThisTurn: false } : prev);
+      }, [state]);
+
       const roundDef = state ? ROUND_DEFS[state.roundIndex] : null;
       const humanHand = state?.round.hands.human || [];
       const computerHandCount = state?.round.hands.computer?.length || 0;
@@ -401,6 +409,7 @@
           if(from === "discard") next.round.discard.pop(); else next.round.deck.pop();
           next.round.hands.human.push(card);
           next.hasDrawn = true;
+          next.laidObjectiveThisTurn = false;
           next.turnAddedCardIds = [];
           next.message = `You drew ${cardLabel(card)} from ${from}.`;
           return next;
@@ -437,6 +446,7 @@
           next.round.tableMelds.push({ id: uid(), owner: "human", type: comp, cards: meldCards || cards });
           next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
           next.round.laid.human.push(comp);
+          next.laidObjectiveThisTurn = true;
           const ids = new Set(cards.map(c=>c.id));
           next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
           next.message = `You laid ${componentDesc(comp)}.`;
@@ -449,6 +459,7 @@
         setState(prev=>{
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Complete your objective first." };
+          if(prev.laidObjectiveThisTurn) return { ...prev, message:"You can add to table melds starting on your next turn." };
           const target = prev.round.tableMelds.find(m=>m.id===meldTarget);
           if(!target) return { ...prev, message:"Choose a target meld." };
           const cards = selectedCards(prev.round.hands.human);
@@ -481,6 +492,7 @@
           next.round.discard.push(card);
           next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
           next.hasDrawn = false;
+          next.laidObjectiveThisTurn = false;
           next.currentPlayer = "computer";
           next.turnAddedCardIds = [];
           next.message = `You discarded ${cardLabel(card)}.`;
@@ -503,6 +515,7 @@
             roundIndex: nextRound,
             currentPlayer: prev.round.winner === "human" ? "human" : "computer",
             hasDrawn: false,
+            laidObjectiveThisTurn: false,
             round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
             turnAddedCardIds: [],
             message: `Round ${nextRound+1} started.`
@@ -557,7 +570,7 @@
               <option value="">Select meld target</option>
               {state.round.tableMelds.map((m, i)=><option key={m.id} value={m.id}>{formatMeldLabel(m, i)}</option>)}
             </select>
-            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={addToMeld}>Add to meld</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn || state.laidObjectiveThisTurn} onClick={addToMeld}>Add to meld</button>
             <button className="px-2 py-1 border rounded bg-slate-900 text-white" disabled={state.currentPlayer!=="human" || !state.hasDrawn} onClick={discard}>Discard</button>
           </div>
         </section>
