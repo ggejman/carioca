@@ -20,7 +20,7 @@
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
-    const APP_VERSION = "v0.6";
+    const APP_VERSION = "v0.61";
 
     const NS = "carioca-game-v2";
     const GAMES_KEY = NS + ":games";
@@ -343,6 +343,7 @@
       const [meldTarget, setMeldTarget] = useState("");
       const [draggingCardId, setDraggingCardId] = useState(null);
       const [dragOverCardId, setDragOverCardId] = useState(null);
+      const [dragOverMeldId, setDragOverMeldId] = useState(null);
 
       useEffect(()=>{
         if(!games.length){
@@ -460,6 +461,32 @@
         return hand.filter(c=>m.has(c.id));
       }
 
+      function addCardsToMeld(targetMeldId, cardIds){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
+          if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Complete your objective first." };
+          if(prev.laidObjectiveThisTurn) return { ...prev, message:"You can add to table melds starting on your next turn." };
+          const target = prev.round.tableMelds.find(m=>m.id===targetMeldId);
+          if(!target) return { ...prev, message:"Choose a target meld." };
+          const cards = cardIds?.length
+            ? prev.round.hands.human.filter(c=>cardIds.includes(c.id))
+            : selectedCards(prev.round.hands.human);
+          if(!cards.length) return { ...prev, message:"Select at least one card." };
+          if(!canLayoffToMeld(target, cards)) return { ...prev, message:"Those cards cannot be added to that meld." };
+          const next = structuredClone(prev);
+          const m = next.round.tableMelds.find(x=>x.id===targetMeldId);
+          const applied = applyLayoffToMeld(m, cards);
+          if(!applied) return { ...prev, message:"Those cards cannot be added to that meld." };
+          m.cards = applied;
+          next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
+          const ids = new Set(cards.map(c=>c.id));
+          next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
+          next.message = `Added ${cards.length} card(s) to a meld.`;
+          setSelected(prevSelected=>prevSelected.filter(id=>!ids.has(id)));
+          return maybeFinishRound(next, "human");
+        });
+      }
+
       function layObjective(){
         setState(prev=>{
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
@@ -483,26 +510,7 @@
       }
 
       function addToMeld(){
-        setState(prev=>{
-          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
-          if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Complete your objective first." };
-          if(prev.laidObjectiveThisTurn) return { ...prev, message:"You can add to table melds starting on your next turn." };
-          const target = prev.round.tableMelds.find(m=>m.id===meldTarget);
-          if(!target) return { ...prev, message:"Choose a target meld." };
-          const cards = selectedCards(prev.round.hands.human);
-          if(!canLayoffToMeld(target, cards)) return { ...prev, message:"Those cards cannot be added to that meld." };
-          const next = structuredClone(prev);
-          const m = next.round.tableMelds.find(x=>x.id===meldTarget);
-          const applied = applyLayoffToMeld(m, cards);
-          if(!applied) return { ...prev, message:"Those cards cannot be added to that meld." };
-          m.cards = applied;
-          next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
-          const ids = new Set(cards.map(c=>c.id));
-          next.round.hands.human = next.round.hands.human.filter(c=>!ids.has(c.id));
-          next.message = `Added ${cards.length} card(s) to a meld.`;
-          setSelected([]);
-          return maybeFinishRound(next, "human");
-        });
+        addCardsToMeld(meldTarget);
       }
 
       function discard(){
@@ -620,7 +628,7 @@
               const isDropTarget = dragOverCardId === c.id && draggingCardId !== c.id;
               return <button
                 key={c.id}
-                draggable={state.handSortMode === "manual"}
+                draggable={state.currentPlayer === "human" && state.hasDrawn}
                 onDragStart={()=>setDraggingCardId(c.id)}
                 onDragOver={e=>{
                   if(state.handSortMode !== "manual") return;
@@ -629,11 +637,11 @@
                 }}
                 onDrop={e=>{
                   e.preventDefault();
-                  moveCardInHand(draggingCardId, c.id);
+                  if(state.handSortMode === "manual") moveCardInHand(draggingCardId, c.id);
                   setDraggingCardId(null);
                   setDragOverCardId(null);
                 }}
-                onDragEnd={()=>{ setDraggingCardId(null); setDragOverCardId(null); }}
+                onDragEnd={()=>{ setDraggingCardId(null); setDragOverCardId(null); setDragOverMeldId(null); }}
                 onClick={()=>toggleSelect(c.id)}
                 className={`px-2 py-1 rounded border ${active?"bg-blue-600 text-white":"bg-white"} ${cardColorWhenActive(c, active)} ${isDropTarget ? "ring-2 ring-emerald-500" : ""}`}
               >{cardLabel(c)}</button>
@@ -644,7 +652,33 @@
         <section className="p-3 rounded bg-white shadow">
           <div className="font-semibold">Table melds</div>
           <div className="grid md:grid-cols-2 gap-2 mt-2">
-            {state.round.tableMelds.map((m, i)=><div className="border rounded p-2" key={m.id}><div className="text-sm font-medium">{formatMeldLabel(m, i)}</div><div className="flex flex-wrap gap-1">{m.cards.map(c=><span key={c.id} className={`px-1.5 py-0.5 rounded ${cardColorClass(c)} ${state.turnAddedCardIds?.includes(c.id) ? "bg-amber-200 ring-1 ring-amber-400" : ""}`}>{cardLabel(c)}</span>)}</div></div>)}
+            {state.round.tableMelds.map((m, i)=>{
+              const isMeldDropTarget = dragOverMeldId === m.id;
+              return <div
+                className={`border rounded p-2 ${isMeldDropTarget ? "ring-2 ring-emerald-500 bg-emerald-50" : ""}`}
+                key={m.id}
+                onDragOver={e=>{
+                  if(!draggingCardId) return;
+                  e.preventDefault();
+                  setDragOverMeldId(m.id);
+                }}
+                onDragLeave={()=>{ if(dragOverMeldId === m.id) setDragOverMeldId(null); }}
+                onDrop={e=>{
+                  e.preventDefault();
+                  if(!draggingCardId) return;
+                  const hand = state.round.hands.human;
+                  const selectedSet = new Set(selected);
+                  const droppedIds = selectedSet.has(draggingCardId)
+                    ? hand.filter(c=>selectedSet.has(c.id)).map(c=>c.id)
+                    : [draggingCardId];
+                  setMeldTarget(m.id);
+                  addCardsToMeld(m.id, droppedIds);
+                  setDraggingCardId(null);
+                  setDragOverCardId(null);
+                  setDragOverMeldId(null);
+                }}
+              ><div className="text-sm font-medium">{formatMeldLabel(m, i)}</div><div className="flex flex-wrap gap-1">{m.cards.map(c=><span key={c.id} className={`px-1.5 py-0.5 rounded ${cardColorClass(c)} ${state.turnAddedCardIds?.includes(c.id) ? "bg-amber-200 ring-1 ring-amber-400" : ""}`}>{cardLabel(c)}</span>)}</div></div>;
+            })}
             {!state.round.tableMelds.length && <div className="text-sm text-slate-600">No melds yet.</div>}
           </div>
         </section>
