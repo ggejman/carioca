@@ -672,7 +672,7 @@
               const isDropTarget = dragOverCardId === c.id && draggingCardId !== c.id;
               return <button
                 key={c.id}
-                draggable={state.currentPlayer === "human" && state.hasDrawn}
+                draggable={state.handSortMode === "manual" || (state.currentPlayer === "human" && state.hasDrawn)}
                 onDragStart={()=>setDraggingCardId(c.id)}
                 onDragOver={e=>{
                   if(state.handSortMode !== "manual") return;
