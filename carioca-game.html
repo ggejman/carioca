@@ -316,6 +316,7 @@
         aiLevel,
         handSortMode: "manual",
         turnAddedCardIds: [],
+        objectiveMeldIdsLaidThisTurn: [],
         phase: "playing",
         roundIndex: 0,
         currentPlayer: "human",
@@ -386,6 +387,11 @@
         setState(prev => prev ? { ...prev, laidObjectiveThisTurn: false } : prev);
       }, [state]);
 
+      useEffect(()=>{
+        if(!state || Array.isArray(state.objectiveMeldIdsLaidThisTurn)) return;
+        setState(prev => prev ? { ...prev, objectiveMeldIdsLaidThisTurn: [] } : prev);
+      }, [state]);
+
       const roundDef = state ? ROUND_DEFS[state.roundIndex] : null;
       const humanHand = state?.round.hands.human || [];
       const computerHandCount = state?.round.hands.computer?.length || 0;
@@ -421,6 +427,7 @@
           next.round.hands.human.push(card);
           next.hasDrawn = true;
           next.laidObjectiveThisTurn = false;
+          next.objectiveMeldIdsLaidThisTurn = [];
           next.turnAddedCardIds = [];
           next.message = `You drew ${cardLabel(card)} from ${from}.`;
           return next;
@@ -497,7 +504,9 @@
           if(!comp) return { ...prev, message: "Selected cards do not match an unmet objective meld." };
           const next = structuredClone(prev);
           const meldCards = comp === "set3" ? cards : normalizeStraightCards(cards, comp);
-          next.round.tableMelds.push({ id: uid(), owner: "human", type: comp, cards: meldCards || cards });
+          const meldId = uid();
+          next.round.tableMelds.push({ id: meldId, owner: "human", type: comp, cards: meldCards || cards });
+          next.objectiveMeldIdsLaidThisTurn = [...(next.objectiveMeldIdsLaidThisTurn || []), meldId];
           next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
           next.round.laid.human.push(comp);
           next.laidObjectiveThisTurn = true;
@@ -513,12 +522,44 @@
         addCardsToMeld(meldTarget);
       }
 
+
+      function rollbackObjectiveMelds(){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
+          if(objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Your objective is complete." };
+          const rollbackIds = new Set(prev.objectiveMeldIdsLaidThisTurn || []);
+          if(!rollbackIds.size) return { ...prev, message:"No objective melds from this turn to roll back." };
+
+          const next = structuredClone(prev);
+          const meldsToRollback = next.round.tableMelds.filter(m=>rollbackIds.has(m.id) && m.owner === "human");
+          if(!meldsToRollback.length) return { ...prev, message:"No objective melds from this turn to roll back." };
+
+          const returnCards = meldsToRollback.flatMap(m=>m.cards);
+          next.round.hands.human.push(...returnCards);
+          next.round.tableMelds = next.round.tableMelds.filter(m=>!rollbackIds.has(m.id));
+          for(const meld of meldsToRollback){
+            const idx = next.round.laid.human.lastIndexOf(meld.type);
+            if(idx >= 0) next.round.laid.human.splice(idx, 1);
+          }
+          const rollbackCardIds = new Set(returnCards.map(c=>c.id));
+          next.turnAddedCardIds = (next.turnAddedCardIds || []).filter(id=>!rollbackCardIds.has(id));
+          next.objectiveMeldIdsLaidThisTurn = [];
+          next.laidObjectiveThisTurn = false;
+          next.message = `Rolled back ${meldsToRollback.length} incomplete objective meld(s).`;
+          setSelected([]);
+          return next;
+        });
+      }
+
       function discard(){
         setState(prev=>{
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           const cards = selectedCards(prev.round.hands.human);
           if(cards.length!==1) return { ...prev, message:"Select exactly one card to discard." };
           const card = cards[0];
+          if(!objectiveDone(prev.round.laid.human, roundDef.components) && (prev.objectiveMeldIdsLaidThisTurn || []).length){
+            return { ...prev, message:"You cannot pass with an incomplete objective. Roll back this turn's objective melds first." };
+          }
           const wouldGoOut = prev.round.hands.human.length === 1;
           if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
             return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
@@ -528,6 +569,7 @@
           next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
           next.hasDrawn = false;
           next.laidObjectiveThisTurn = false;
+          next.objectiveMeldIdsLaidThisTurn = [];
           next.currentPlayer = "computer";
           next.turnAddedCardIds = [];
           next.message = `You discarded ${cardLabel(card)}.`;
@@ -551,6 +593,7 @@
             currentPlayer: prev.round.winner === "human" ? "human" : "computer",
             hasDrawn: false,
             laidObjectiveThisTurn: false,
+            objectiveMeldIdsLaidThisTurn: [],
             round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
             turnAddedCardIds: [],
             message: `Round ${nextRound+1} started.`
@@ -601,6 +644,7 @@
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw deck ({state.round.deck.length})</button>
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Draw discard ({state.round.discard.length ? <span className={cardColorClass(state.round.discard[state.round.discard.length-1])}>{cardLabel(state.round.discard[state.round.discard.length-1])}</span> : "—"})</button>
             <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete} onClick={layObjective}>Lay objective meld</button>
+            <button className="px-2 py-1 border rounded" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete || !(state.objectiveMeldIdsLaidThisTurn||[]).length} onClick={rollbackObjectiveMelds}>Rollback objective meld(s)</button>
             <select className="border rounded px-2 py-1" value={meldTarget} onChange={e=>setMeldTarget(e.target.value)}>
               <option value="">Select meld target</option>
               {state.round.tableMelds.map((m, i)=><option key={m.id} value={m.id}>{formatMeldLabel(m, i)}</option>)}
