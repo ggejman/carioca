@@ -10,7 +10,7 @@
 <body class="min-h-screen bg-slate-100 text-slate-900">
   <main class="max-w-3xl mx-auto px-4 py-10">
     <h1 class="text-3xl font-bold mb-1">Carioca</h1>
-    <p class="text-xs text-slate-500 mb-2">Version v0.4</p>
+    <p id="versionBadge" class="text-xs text-slate-500 mb-2 cursor-default select-none" title="">Version v0.4</p>
     <p class="text-slate-700 mb-8">Choose which app you want to use.</p>
     <div class="grid md:grid-cols-2 gap-4">
       <a class="block p-5 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow transition" href="./carioca-pwa.html">
@@ -28,6 +28,43 @@
     if('serviceWorker' in navigator){
       window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(console.error)});
     }
+
+    (function(){
+      const badge = document.getElementById('versionBadge');
+      if(!badge) return;
+
+      let taps = [];
+      const SECRET_TAPS = 5;
+      const WINDOW_MS = 4000;
+
+      function clearCariocaData(){
+        const prefixes = ['carioca-scorekeeper-v1', 'carioca-game-v2'];
+        const keysToDelete = [];
+        for(let i=0; i<localStorage.length; i++){
+          const key = localStorage.key(i);
+          if(key && prefixes.some(prefix => key.startsWith(prefix))){
+            keysToDelete.push(key);
+          }
+        }
+        keysToDelete.forEach(key => localStorage.removeItem(key));
+      }
+
+      badge.addEventListener('click', ()=>{
+        const now = Date.now();
+        taps = taps.filter(ts => now - ts < WINDOW_MS);
+        taps.push(now);
+
+        if(taps.length < SECRET_TAPS) return;
+        taps = [];
+
+        const code = prompt('Admin reset: type RESET to wipe all saved games and turns.');
+        if(code !== 'RESET') return;
+        if(!confirm('This will permanently remove all saved Carioca games and turns on this device. Continue?')) return;
+
+        clearCariocaData();
+        alert('All saved data has been deleted. The app will now start from scratch.');
+      });
+    })();
   </script>
 
 </body>
