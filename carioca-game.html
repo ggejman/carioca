@@ -13,14 +13,18 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <style>html,body,#root{height:100%;}</style>
+  <style>
+    html,body,#root{height:100%;}
+    @keyframes aiDraw{0%{transform:translate(-110px,-30px) scale(0.9);opacity:0.75;}100%{transform:translate(0,0) scale(1);opacity:1;}}
+    @keyframes aiDiscard{0%{transform:translate(-90px,-15px) scale(0.95);opacity:0.8;}100%{transform:translate(0,0) scale(1);opacity:1;}}
+  </style>
 </head>
 <body class="bg-slate-950 text-slate-100">
   <div id="root"></div>
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
-    const APP_VERSION = "v0.65";
+    const APP_VERSION = "v0.66";
 
     const NS = "carioca-game-v2";
     const GAMES_KEY = NS + ":games";
@@ -89,6 +93,15 @@
         <text x='20' y='52' font-size='36' font-family='Inter,Arial,sans-serif' fill='${color}' font-weight='800'>${top}</text>
         <text x='90' y='146' text-anchor='middle' font-size='84' font-family='Inter,Arial,sans-serif' fill='${color}'>${center}</text>
         <text x='160' y='226' text-anchor='end' font-size='36' font-family='Inter,Arial,sans-serif' fill='${color}' font-weight='800'>${top}</text>
+      </svg>`;
+      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+    function cardBackImageData(){
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 250'>
+        <rect x='5' y='5' width='170' height='240' rx='18' fill='#e2e8f0' stroke='#94a3b8' stroke-width='6'/>
+        <rect x='24' y='24' width='132' height='202' rx='14' fill='#1e293b' opacity='0.9'/>
+        <circle cx='90' cy='125' r='34' fill='#334155'/>
+        <text x='90' y='134' text-anchor='middle' font-size='30' font-family='Inter,Arial,sans-serif' fill='#e2e8f0'>C</text>
       </svg>`;
       return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
     }
@@ -314,18 +327,21 @@
       return out;
     }
 
-    function applyLayoffToMeld(meld, cards){
+    function applyLayoffToMeld(meld, cards, sidePreference=null){
       if(!cards.length) return null;
       if(meld.type === "set3"){
         const merged = [...meld.cards, ...cards];
         const naturals = merged.filter(c=>!c.joker);
         return naturals.length === 0 || naturals.every(c=>c.rank === naturals[0].rank) ? merged : null;
       }
+      if(sidePreference === "left" || sidePreference === "right"){
+        return canExtendStraightOnSide(meld.cards, cards, sidePreference, meld.type);
+      }
       return canExtendStraightOnSide(meld.cards, cards, "right", meld.type) || canExtendStraightOnSide(meld.cards, cards, "left", meld.type);
     }
 
-    function canLayoffToMeld(meld, cards){
-      return !!applyLayoffToMeld(meld, cards);
+    function canLayoffToMeld(meld, cards, sidePreference=null){
+      return !!applyLayoffToMeld(meld, cards, sidePreference);
     }
 
     function newGameState(humanName, aiLevel){
@@ -354,6 +370,8 @@
         history: [],
         lastDrawnCardId: null,
         aiLastDrawFrom: null,
+        aiDrawPreviewCard: null,
+        aiDiscardPreviewCard: null,
         message: "Game started.",
       };
     }
@@ -414,6 +432,18 @@
         if(!state || Array.isArray(state.objectiveMeldIdsLaidThisTurn)) return;
         setState(prev => prev ? { ...prev, objectiveMeldIdsLaidThisTurn: [] } : prev);
       }, [state]);
+
+      useEffect(()=>{
+        if(!state || (!state.aiDrawPreviewCard && !state.aiDiscardPreviewCard)) return;
+        const t = setTimeout(()=>{
+          setState(prev=>{
+            if(!prev) return prev;
+            if(!prev.aiDrawPreviewCard && !prev.aiDiscardPreviewCard) return prev;
+            return { ...prev, aiDrawPreviewCard: null, aiDiscardPreviewCard: null };
+          });
+        }, 1100);
+        return ()=>clearTimeout(t);
+      }, [state?.aiDrawPreviewCard?.id, state?.aiDiscardPreviewCard?.id]);
 
       const roundDef = state ? ROUND_DEFS[state.roundIndex] : null;
       const humanHand = state?.round.hands.human || [];
@@ -502,7 +532,7 @@
         return hand.filter(c=>m.has(c.id));
       }
 
-      function addCardsToMeld(targetMeldId, cardIds){
+      function addCardsToMeld(targetMeldId, cardIds, sidePreference=null){
         setState(prev=>{
           if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
           if(!objectiveDone(prev.round.laid.human, roundDef.components)) return { ...prev, message:"Complete your objective first." };
@@ -513,10 +543,15 @@
             ? prev.round.hands.human.filter(c=>cardIds.includes(c.id))
             : selectedCards(prev.round.hands.human);
           if(!cards.length) return { ...prev, message:"Select at least one card." };
-          if(!canLayoffToMeld(target, cards)) return { ...prev, message:"Those cards cannot be added to that meld." };
+          if(!canLayoffToMeld(target, cards, sidePreference)){
+            if(sidePreference && cards.some(c=>c.joker) && target.type !== "set3"){
+              return { ...prev, message:`That side won't work for this joker. Drag to the ${sidePreference === "left" ? "other end (right)" : "other end (left)"} of the meld.` };
+            }
+            return { ...prev, message:"Those cards cannot be added to that meld." };
+          }
           const next = structuredClone(prev);
           const m = next.round.tableMelds.find(x=>x.id===targetMeldId);
-          const applied = applyLayoffToMeld(m, cards);
+          const applied = applyLayoffToMeld(m, cards, sidePreference);
           if(!applied) return { ...prev, message:"Those cards cannot be added to that meld." };
           m.cards = applied;
           next.turnAddedCardIds = [...(next.turnAddedCardIds || []), ...cards.map(c=>c.id)];
@@ -556,6 +591,35 @@
         addCardsToMeld(meldTarget);
       }
 
+      function discardCardById(cardId){
+        setState(prev=>{
+          if(!prev || prev.phase!=="playing") return prev;
+          if(prev.currentPlayer!=="human") return { ...prev, message:"It's not your turn yet." };
+          if(!prev.hasDrawn) return { ...prev, message:"You need to draw before discarding." };
+          const card = prev.round.hands.human.find(c=>c.id===cardId);
+          if(!card) return { ...prev, message:"That card is not in your hand." };
+          if(!objectiveDone(prev.round.laid.human, roundDef.components) && (prev.objectiveMeldIdsLaidThisTurn || []).length){
+            return { ...prev, message:"You cannot pass with an incomplete objective. Roll back this turn's objective melds first." };
+          }
+          const wouldGoOut = prev.round.hands.human.length === 1;
+          if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
+            return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
+          }
+          const next = structuredClone(prev);
+          next.round.discard.push(card);
+          next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
+          next.hasDrawn = false;
+          next.lastDrawnCardId = null;
+          next.laidObjectiveThisTurn = false;
+          next.objectiveMeldIdsLaidThisTurn = [];
+          next.currentPlayer = "computer";
+          next.turnAddedCardIds = [];
+          next.message = `You discarded ${cardLabel(card)}.`;
+          setSelected(prevSelected=>prevSelected.filter(id=>id!==card.id));
+          return maybeFinishRound(next, "human");
+        });
+      }
+
 
       function rollbackObjectiveMelds(){
         setState(prev=>{
@@ -586,31 +650,13 @@
       }
 
       function discard(){
-        setState(prev=>{
-          if(!prev || prev.phase!=="playing" || prev.currentPlayer!=="human" || !prev.hasDrawn) return prev;
-          const cards = selectedCards(prev.round.hands.human);
-          if(cards.length!==1) return { ...prev, message:"Select exactly one card to discard." };
-          const card = cards[0];
-          if(!objectiveDone(prev.round.laid.human, roundDef.components) && (prev.objectiveMeldIdsLaidThisTurn || []).length){
-            return { ...prev, message:"You cannot pass with an incomplete objective. Roll back this turn's objective melds first." };
-          }
-          const wouldGoOut = prev.round.hands.human.length === 1;
-          if(wouldGoOut && !objectiveDone(prev.round.laid.human, roundDef.components)) {
-            return { ...prev, message:"You can discard, but you cannot go out until your objective is complete." };
-          }
-          const next = structuredClone(prev);
-          next.round.discard.push(card);
-          next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
-          next.hasDrawn = false;
-          next.lastDrawnCardId = null;
-          next.laidObjectiveThisTurn = false;
-          next.objectiveMeldIdsLaidThisTurn = [];
-          next.currentPlayer = "computer";
-          next.turnAddedCardIds = [];
-          next.message = `You discarded ${cardLabel(card)}.`;
-          setSelected([]);
-          return maybeFinishRound(next, "human");
-        });
+        if(!state) return;
+        const cards = selectedCards(state.round.hands.human);
+        if(cards.length!==1){
+          setState(prev=>prev ? { ...prev, message:"Select exactly one card to discard." } : prev);
+          return;
+        }
+        discardCardById(cards[0].id);
       }
 
       function endRoundNext(){
@@ -630,6 +676,8 @@
             laidObjectiveThisTurn: false,
             lastDrawnCardId: null,
             aiLastDrawFrom: null,
+            aiDrawPreviewCard: null,
+            aiDiscardPreviewCard: null,
             objectiveMeldIdsLaidThisTurn: [],
             round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
             turnAddedCardIds: [],
@@ -651,7 +699,7 @@
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", `draw:${from}`);
         const img = new Image();
-        img.src = cardImageData(card, false);
+        img.src = from === "deck" ? cardBackImageData() : cardImageData(card, false);
         img.style.position = "absolute";
         img.style.left = "-9999px";
         img.style.width = "56px";
@@ -727,7 +775,8 @@
                 <div className="text-2xl -translate-y-1">🖐️</div>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1.5 min-h-[74px] items-end">
+            <div className="mt-3 flex flex-wrap gap-1.5 min-h-[74px] items-end relative">
+              {state.aiDrawPreviewCard && <img src={cardImageData(state.aiDrawPreviewCard)} alt="AI draw" className="pointer-events-none absolute left-1 top-1 h-20 w-14 rounded-lg border border-amber-200/60 shadow-lg animate-[aiDraw_900ms_ease-out]" />}
               {Array.from({ length: computerHandCount }).map((_, idx)=><div key={idx} className="h-20 w-14 rounded-lg bg-gradient-to-br from-slate-100 to-slate-300 border border-slate-300/80 shadow" />)}
             </div>
           </div>
@@ -760,10 +809,23 @@
                   draggable={!!state.round.discard.length}
                   onDragStart={(e)=>startDrawDrag(e, "discard")}
                   onDragEnd={()=>setDraggingDrawFrom(null)}
+                  onDragOver={e=>{
+                    if(!draggingCardId) return;
+                    e.preventDefault();
+                  }}
+                  onDrop={e=>{
+                    e.preventDefault();
+                    if(!draggingCardId) return;
+                    discardCardById(draggingCardId);
+                    setDraggingCardId(null);
+                    setDragOverCardId(null);
+                    setDragOverMeldId(null);
+                  }}
                   title="Drag this to your hand to take discard"
                 >
                   {state.round.discard.length ? <CardFace card={state.round.discard[state.round.discard.length-1]} className="h-20 w-14" /> : <span className="text-slate-400">—</span>}
                 </div>
+                {state.aiDiscardPreviewCard && <img src={cardImageData(state.aiDiscardPreviewCard)} alt="AI discard" className="pointer-events-none h-20 w-14 rounded-lg border border-amber-200/70 shadow-lg animate-[aiDiscard_900ms_ease-out]" />}
                 <button className="px-2 py-1 border border-white/20 rounded-lg bg-slate-900/60 text-xs" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Take discard</button>
               </div>
             </div>
@@ -860,8 +922,10 @@
                     const droppedIds = selectedSet.has(draggingCardId)
                       ? hand.filter(c=>selectedSet.has(c.id)).map(c=>c.id)
                       : [draggingCardId];
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const sidePreference = e.clientX < rect.left + rect.width/2 ? "left" : "right";
                     setMeldTarget(m.id);
-                    addCardsToMeld(m.id, droppedIds);
+                    addCardsToMeld(m.id, droppedIds, sidePreference);
                     setDraggingCardId(null);
                     setDragOverCardId(null);
                     setDragOverMeldId(null);
@@ -944,7 +1008,12 @@
       const topDiscard = next.round.discard[next.round.discard.length-1];
 
       // draw
-      const shouldTakeDiscard = topDiscard && aiWantsCard(topDiscard, hand, roundDef.components, next.round.laid.computer, next.aiLevel);
+      let shouldTakeDiscard = !!(topDiscard && aiWantsCard(topDiscard, hand, roundDef.components, next.round.laid.computer, next.aiLevel));
+      if(shouldTakeDiscard && topDiscard){
+        const testHand = [...hand, topDiscard];
+        const immediateDiscard = chooseDiscard(testHand, roundDef.components, next.round.laid.computer, next.aiLevel);
+        if(immediateDiscard?.id === topDiscard.id) shouldTakeDiscard = false;
+      }
       let drawnCard = null;
       if(shouldTakeDiscard){
         drawnCard = next.round.discard.pop();
@@ -958,6 +1027,7 @@
         next.aiLastDrawFrom = "deck";
         aiEvents.push(`${next.computerName} drew from the deck`);
       }
+      next.aiDrawPreviewCard = drawnCard;
       next.hasDrawn = true;
 
       // lay objective melds
@@ -1003,6 +1073,7 @@
 
       // discard
       const discardCard = chooseDiscard(next.round.hands.computer, roundDef.components, next.round.laid.computer, next.aiLevel);
+      next.aiDiscardPreviewCard = discardCard;
       next.round.discard.push(discardCard);
       next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==discardCard.id);
       next.currentPlayer = "human";
