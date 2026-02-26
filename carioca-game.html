@@ -56,7 +56,8 @@
 
     const ls = {
       read(k, fb){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } },
-      write(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+      write(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+      remove(k){ try{ localStorage.removeItem(k); } catch {} }
     };
 
     function randomComputerName(){
@@ -416,6 +417,39 @@
         if(s){ setGameId(id); setState(s); setSelected([]); }
       }
 
+      function deleteGame(){
+        if(!gameId) return;
+        const meta = games.find(g=>g.id===gameId);
+        const ok = confirm(`Delete game “${meta?.name || "this game"}”? This cannot be undone.`);
+        if(!ok) return;
+
+        ls.remove(GAME_PREFIX + gameId);
+        const remaining = games.filter(g=>g.id!==gameId);
+
+        if(!remaining.length){
+          const id = uid();
+          const freshMeta = { id, name: "Game 1", updatedAt: Date.now() };
+          const freshState = newGameState("Player", "Medium");
+          setGames([freshMeta]);
+          setGameId(id);
+          setState(freshState);
+          setSelected([]);
+          ls.write(GAME_PREFIX + id, freshState);
+          ls.write(GAMES_KEY, [freshMeta]);
+          ls.write(LAST_GAME_KEY, id);
+          return;
+        }
+
+        const nextGameId = remaining[0].id;
+        const nextState = ls.read(GAME_PREFIX + nextGameId, null);
+        setGames(remaining);
+        setGameId(nextGameId);
+        setState(nextState || newGameState("Player", "Medium"));
+        setSelected([]);
+        ls.write(GAMES_KEY, remaining);
+        ls.write(LAST_GAME_KEY, nextGameId);
+      }
+
       function draw(from){
         setState(prev=>{
           if(!prev || prev.phase !== "playing" || prev.currentPlayer !== "human" || prev.hasDrawn) return prev;
@@ -614,6 +648,7 @@
               {games.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
             <button className="px-3 py-1 rounded bg-slate-800 text-white" onClick={createGame}>New Game</button>
+            <button className="px-3 py-1 rounded border border-red-300 text-red-700" onClick={deleteGame} disabled={!gameId}>Delete Game</button>
           </div>
         </header>
 
