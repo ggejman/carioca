@@ -20,7 +20,7 @@
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
-    const APP_VERSION = "v0.64";
+    const APP_VERSION = "v0.65";
 
     const NS = "carioca-game-v2";
     const GAMES_KEY = NS + ":games";
@@ -352,6 +352,8 @@
         },
         totals: { human: 0, computer: 0 },
         history: [],
+        lastDrawnCardId: null,
+        aiLastDrawFrom: null,
         message: "Game started.",
       };
     }
@@ -365,6 +367,7 @@
       const [draggingCardId, setDraggingCardId] = useState(null);
       const [dragOverCardId, setDragOverCardId] = useState(null);
       const [dragOverMeldId, setDragOverMeldId] = useState(null);
+      const [draggingDrawFrom, setDraggingDrawFrom] = useState(null);
 
       useEffect(()=>{
         if(!games.length){
@@ -393,7 +396,7 @@
 
       useEffect(()=>{
         if(!state || state.phase !== "playing" || state.currentPlayer !== "computer") return;
-        const t = setTimeout(()=>setState(prev=>runAiTurn(prev)), 700);
+        const t = setTimeout(()=>setState(prev=>runAiTurn(prev)), 1600);
         return ()=>clearTimeout(t);
       },[state]);
 
@@ -436,16 +439,27 @@
         if(s){ setGameId(id); setState(s); setSelected([]); }
       }
 
+      function drawRestriction(prev, from){
+        if(!prev || prev.phase !== "playing") return "The round is not in a playable state.";
+        if(prev.currentPlayer !== "human") return "It's not your turn yet.";
+        if(prev.hasDrawn) return "You already drew this turn. You must play and discard now.";
+        const src = from === "discard" ? prev.round.discard : prev.round.deck;
+        if(!src.length) return from === "discard" ? "Discard pile is empty." : "Deck is empty.";
+        return null;
+      }
+
       function draw(from){
         setState(prev=>{
-          if(!prev || prev.phase !== "playing" || prev.currentPlayer !== "human" || prev.hasDrawn) return prev;
+          const reason = drawRestriction(prev, from);
+          if(reason) return { ...prev, message: reason };
           const src = from === "discard" ? prev.round.discard : prev.round.deck;
-          if(!src.length) return { ...prev, message: "No cards available there." };
           const card = src[src.length-1];
           const next = structuredClone(prev);
           if(from === "discard") next.round.discard.pop(); else next.round.deck.pop();
           next.round.hands.human.push(card);
           next.hasDrawn = true;
+          next.lastDrawnCardId = card.id;
+          next.aiLastDrawFrom = null;
           next.laidObjectiveThisTurn = false;
           next.objectiveMeldIdsLaidThisTurn = [];
           next.turnAddedCardIds = [];
@@ -588,6 +602,7 @@
           next.round.discard.push(card);
           next.round.hands.human = next.round.hands.human.filter(c=>c.id!==card.id);
           next.hasDrawn = false;
+          next.lastDrawnCardId = null;
           next.laidObjectiveThisTurn = false;
           next.objectiveMeldIdsLaidThisTurn = [];
           next.currentPlayer = "computer";
@@ -613,6 +628,8 @@
             currentPlayer: prev.round.winner === "human" ? "human" : "computer",
             hasDrawn: false,
             laidObjectiveThisTurn: false,
+            lastDrawnCardId: null,
+            aiLastDrawFrom: null,
             objectiveMeldIdsLaidThisTurn: [],
             round: { deck, discard, hands, tableMelds: [], laid:{human:[],computer:[]}, winner:null },
             turnAddedCardIds: [],
@@ -621,11 +638,35 @@
         });
       }
 
+      function startDrawDrag(e, from){
+        const reason = drawRestriction(state, from);
+        if(reason){
+          e.preventDefault();
+          setState(prev=>prev ? { ...prev, message: reason } : prev);
+          return;
+        }
+        const source = from === "discard" ? state.round.discard : state.round.deck;
+        const card = source[source.length-1];
+        if(!card) return;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", `draw:${from}`);
+        const img = new Image();
+        img.src = cardImageData(card, false);
+        img.style.position = "absolute";
+        img.style.left = "-9999px";
+        img.style.width = "56px";
+        img.style.height = "80px";
+        document.body.appendChild(img);
+        e.dataTransfer.setDragImage(img, 28, 40);
+        setTimeout(()=>img.remove(), 0);
+        setDraggingDrawFrom(from);
+      }
+
       function CardFace({ card, selected: isSelected=false, highlight=false, className="" }){
         return <img
           src={cardImageData(card, isSelected)}
           alt={cardLabel(card)}
-          className={`h-28 w-[80px] rounded-xl border border-slate-300/80 shadow-sm bg-white object-cover select-none ${highlight ? "ring-2 ring-emerald-400" : ""} ${className}`}
+          className={`h-20 w-14 rounded-lg border border-slate-300/80 shadow-sm bg-white object-cover select-none ${highlight ? "ring-2 ring-emerald-400" : ""} ${className}`}
           draggable={false}
         />;
       }
@@ -691,15 +732,21 @@
             </div>
           </div>
 
-          <div className="grid md:grid-cols-[1fr_auto_1fr] gap-4 items-start">
+          <div className="grid md:grid-cols-[1fr_auto_1fr] gap-3 items-start">
             <div className="rounded-2xl bg-emerald-950/40 border border-emerald-300/20 p-3">
               <div className="text-xs uppercase tracking-widest text-emerald-200/80 mb-2">Deck</div>
               <div className="flex items-center gap-3">
-                <div className="relative h-28 w-[84px]">
+                <div
+                  className={`relative h-20 w-14 cursor-grab active:cursor-grabbing ${state.aiLastDrawFrom === "deck" ? "ring-2 ring-amber-300 rounded-lg" : ""}`}
+                  draggable={true}
+                  onDragStart={(e)=>startDrawDrag(e, "deck")}
+                  onDragEnd={()=>setDraggingDrawFrom(null)}
+                  title="Drag this to your hand to draw"
+                >
                   <div className="absolute inset-0 translate-x-1 translate-y-1 rounded-xl bg-slate-200/40" />
                   <div className="absolute inset-0 rounded-xl border border-slate-200/70 bg-gradient-to-br from-slate-100 to-slate-300 shadow-md" />
                 </div>
-                <button className="px-3 py-2 border border-white/20 rounded-lg bg-slate-900/60 text-sm" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw ({state.round.deck.length})</button>
+                <button className="px-2 py-1 border border-white/20 rounded-lg bg-slate-900/60 text-xs" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.deck.length} onClick={()=>draw("deck")}>Draw ({state.round.deck.length})</button>
               </div>
             </div>
 
@@ -708,10 +755,16 @@
             <div className="rounded-2xl bg-emerald-950/40 border border-emerald-300/20 p-3">
               <div className="text-xs uppercase tracking-widest text-emerald-200/80 mb-2">Discard</div>
               <div className="flex items-center gap-3">
-                <div className="h-28 w-[84px] rounded-xl border border-slate-200/70 bg-white/95 flex items-center justify-center shadow-md">
-                  {state.round.discard.length ? <CardFace card={state.round.discard[state.round.discard.length-1]} className="h-24 w-[68px]" /> : <span className="text-slate-400">—</span>}
+                <div
+                  className={`h-20 w-14 rounded-lg border border-slate-200/70 bg-white/95 flex items-center justify-center shadow-md ${state.aiLastDrawFrom === "discard" ? "ring-2 ring-amber-300" : ""} ${state.round.discard.length ? "cursor-grab active:cursor-grabbing" : ""}`}
+                  draggable={!!state.round.discard.length}
+                  onDragStart={(e)=>startDrawDrag(e, "discard")}
+                  onDragEnd={()=>setDraggingDrawFrom(null)}
+                  title="Drag this to your hand to take discard"
+                >
+                  {state.round.discard.length ? <CardFace card={state.round.discard[state.round.discard.length-1]} className="h-20 w-14" /> : <span className="text-slate-400">—</span>}
                 </div>
-                <button className="px-3 py-2 border border-white/20 rounded-lg bg-slate-900/60 text-sm" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Take discard</button>
+                <button className="px-2 py-1 border border-white/20 rounded-lg bg-slate-900/60 text-xs" disabled={state.currentPlayer!=="human" || state.hasDrawn || !state.round.discard.length} onClick={()=>draw("discard")}>Take discard</button>
               </div>
             </div>
           </div>
@@ -729,12 +782,25 @@
             </div>
             <div className="relative">
               <div className="absolute left-3 right-3 -bottom-3 h-8 rounded-full bg-amber-200/30 blur-md" />
-              <div className="absolute -bottom-1 left-8 text-3xl">✋</div>
-              <div className="absolute -bottom-1 right-8 text-3xl -scale-x-100">✋</div>
-              <div className="relative z-10 flex flex-wrap gap-2 pb-4">
+              <div className="absolute -bottom-1 left-8 text-2xl">✋</div>
+              <div className="absolute -bottom-1 right-8 text-2xl -scale-x-100">✋</div>
+              <div className="relative z-10 flex flex-wrap gap-1.5 pb-3 min-h-[98px]"
+                onDragOver={e=>{
+                  if(!draggingDrawFrom) return;
+                  e.preventDefault();
+                }}
+                onDrop={e=>{
+                  e.preventDefault();
+                  if(draggingDrawFrom){
+                    draw(draggingDrawFrom);
+                    setDraggingDrawFrom(null);
+                  }
+                }}
+              >
                 {(state.handSortMode === "manual" ? humanHand : sortHand(humanHand, state.handSortMode || "rank")).map(c=>{
                   const active = selected.includes(c.id);
                   const isDropTarget = dragOverCardId === c.id && draggingCardId !== c.id;
+                  const isNewlyDrawn = state.lastDrawnCardId === c.id;
                   return <button
                     key={c.id}
                     draggable={true}
@@ -752,7 +818,7 @@
                     }}
                     onDragEnd={()=>{ setDraggingCardId(null); setDragOverCardId(null); setDragOverMeldId(null); }}
                     onClick={()=>toggleSelect(c.id)}
-                    className={`rounded-xl transition-transform hover:-translate-y-1 ${cardColorWhenActive(c, active)}`}
+                    className={`rounded-lg transition-transform hover:-translate-y-1 ${cardColorWhenActive(c, active)} ${isNewlyDrawn ? "ring-2 ring-amber-300 ring-offset-2 ring-offset-emerald-900" : ""}`}
                   ><CardFace card={c} selected={active} highlight={isDropTarget} /></button>;
                 })}
               </div>
@@ -872,14 +938,26 @@
       if(!state || state.phase!=="playing" || state.currentPlayer!=="computer") return state;
       const next = structuredClone(state);
       next.turnAddedCardIds = [];
+      const aiEvents = [];
       const roundDef = ROUND_DEFS[next.roundIndex];
       const hand = next.round.hands.computer;
       const topDiscard = next.round.discard[next.round.discard.length-1];
 
       // draw
       const shouldTakeDiscard = topDiscard && aiWantsCard(topDiscard, hand, roundDef.components, next.round.laid.computer, next.aiLevel);
-      if(shouldTakeDiscard){ hand.push(next.round.discard.pop()); }
-      else if(next.round.deck.length){ hand.push(next.round.deck.pop()); }
+      let drawnCard = null;
+      if(shouldTakeDiscard){
+        drawnCard = next.round.discard.pop();
+        if(drawnCard) hand.push(drawnCard);
+        next.aiLastDrawFrom = "discard";
+        aiEvents.push(`${next.computerName} took ${drawnCard ? cardLabel(drawnCard) : "a card"} from the discard pile`);
+      }
+      else if(next.round.deck.length){
+        drawnCard = next.round.deck.pop();
+        if(drawnCard) hand.push(drawnCard);
+        next.aiLastDrawFrom = "deck";
+        aiEvents.push(`${next.computerName} drew from the deck`);
+      }
       next.hasDrawn = true;
 
       // lay objective melds
@@ -896,6 +974,7 @@
           next.round.laid.computer.push(m.type);
         }
         next.round.hands.computer = next.round.hands.computer.filter(c=>!used.has(c.id));
+        aiEvents.push(`${next.computerName} laid ${newMelds.length} meld${newMelds.length>1?"s":""}`);
       }
 
       // layoff if objective done
@@ -928,7 +1007,8 @@
       next.round.hands.computer = next.round.hands.computer.filter(c=>c.id!==discardCard.id);
       next.currentPlayer = "human";
       next.hasDrawn = false;
-      next.message = `${next.computerName} took a turn and discarded ${cardLabel(discardCard)}.`;
+      aiEvents.push(`${next.computerName} discarded ${cardLabel(discardCard)}`);
+      next.message = aiEvents.join(". ") + ".";
 
       return maybeFinishRound(next, "computer");
     }
