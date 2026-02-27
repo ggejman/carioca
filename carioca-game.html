@@ -385,6 +385,7 @@
       const [draggingCardId, setDraggingCardId] = useState(null);
       const [dragOverCardId, setDragOverCardId] = useState(null);
       const [dragOverMeldId, setDragOverMeldId] = useState(null);
+      const [dragOverDiscardBox, setDragOverDiscardBox] = useState(false);
       const [draggingDrawFrom, setDraggingDrawFrom] = useState(null);
 
       useEffect(()=>{
@@ -659,6 +660,16 @@
         discardCardById(cards[0].id);
       }
 
+      function handleDiscardDrop(e){
+        e.preventDefault();
+        if(!draggingCardId) return;
+        discardCardById(draggingCardId);
+        setDraggingCardId(null);
+        setDragOverCardId(null);
+        setDragOverMeldId(null);
+        setDragOverDiscardBox(false);
+      }
+
       function endRoundNext(){
         setState(prev=>{
           if(!prev || prev.phase !== "roundOver") return prev;
@@ -801,26 +812,32 @@
 
             <div className="text-3xl text-emerald-100/80 self-center">VS</div>
 
-            <div className="rounded-2xl bg-emerald-950/40 border border-emerald-300/20 p-3">
+            <div
+              className={`rounded-2xl bg-emerald-950/40 border border-emerald-300/20 p-3 ${dragOverDiscardBox ? "ring-2 ring-amber-300" : ""}`}
+              onDragOver={e=>{
+                if(!draggingCardId) return;
+                e.preventDefault();
+                setDragOverDiscardBox(true);
+              }}
+              onDragLeave={e=>{
+                if(e.currentTarget.contains(e.relatedTarget)) return;
+                setDragOverDiscardBox(false);
+              }}
+              onDrop={handleDiscardDrop}
+            >
               <div className="text-xs uppercase tracking-widest text-emerald-200/80 mb-2">Discard</div>
               <div className="flex items-center gap-3">
                 <div
                   className={`h-20 w-14 rounded-lg border border-slate-200/70 bg-white/95 flex items-center justify-center shadow-md ${state.aiLastDrawFrom === "discard" ? "ring-2 ring-amber-300" : ""} ${state.round.discard.length ? "cursor-grab active:cursor-grabbing" : ""}`}
                   draggable={!!state.round.discard.length}
                   onDragStart={(e)=>startDrawDrag(e, "discard")}
-                  onDragEnd={()=>setDraggingDrawFrom(null)}
+                  onDragEnd={()=>{ setDraggingDrawFrom(null); setDragOverDiscardBox(false); }}
                   onDragOver={e=>{
                     if(!draggingCardId) return;
                     e.preventDefault();
                   }}
-                  onDrop={e=>{
-                    e.preventDefault();
-                    if(!draggingCardId) return;
-                    discardCardById(draggingCardId);
-                    setDraggingCardId(null);
-                    setDragOverCardId(null);
-                    setDragOverMeldId(null);
-                  }}
+                  onDrop={handleDiscardDrop}
+                  onDragLeave={()=>setDragOverDiscardBox(false)}
                   title="Drag this to your hand to take discard"
                 >
                   {state.round.discard.length ? <CardFace card={state.round.discard[state.round.discard.length-1]} className="h-20 w-14" /> : <span className="text-slate-400">—</span>}
@@ -878,7 +895,7 @@
                       setDraggingCardId(null);
                       setDragOverCardId(null);
                     }}
-                    onDragEnd={()=>{ setDraggingCardId(null); setDragOverCardId(null); setDragOverMeldId(null); }}
+                    onDragEnd={()=>{ setDraggingCardId(null); setDragOverCardId(null); setDragOverMeldId(null); setDragOverDiscardBox(false); }}
                     onClick={()=>toggleSelect(c.id)}
                     className={`rounded-lg transition-transform hover:-translate-y-1 ${cardColorWhenActive(c, active)} ${isNewlyDrawn ? "ring-2 ring-amber-300 ring-offset-2 ring-offset-emerald-900" : ""}`}
                   ><CardFace card={c} selected={active} highlight={isDropTarget} /></button>;
