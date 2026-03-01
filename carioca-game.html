@@ -24,7 +24,7 @@
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
-    const APP_VERSION = "v0.66";
+    const APP_VERSION = "v0.68";
 
     const NS = "carioca-game-v2";
     const GAMES_KEY = NS + ":games";
@@ -80,7 +80,25 @@
       if(c.joker || !c.suit) return "#1e293b";
       return RED_SUITS.has(c.suit) ? "#dc2626" : "#0f172a";
     }
-    function cardImageData(c, selected=false){
+    function cardAssetKey(c){
+      if(c.joker){
+        const parity = [...c.id].reduce((sum, ch)=>sum + ch.charCodeAt(0), 0) % 2;
+        return `JOKER_${parity+1}`;
+      }
+      const suitMap = { "♠":"S", "♥":"H", "♦":"D", "♣":"C" };
+      return `${c.rank}_${suitMap[c.suit]}`;
+    }
+    function cardAssetPath(filename){
+      try { return new URL(`assets/cards/${filename}`, window.location.href).href; }
+      catch { return `assets/cards/${filename}`; }
+    }
+    function cardImageData(c){
+      return cardAssetPath(`${cardAssetKey(c)}.svg`);
+    }
+    function cardBackImageData(){
+      return cardAssetPath("BACK.svg");
+    }
+    function cardSvgFallbackData(c, selected=false){
       const rank = c.joker ? "JOKER" : c.rank;
       const suit = c.joker ? "★" : c.suit;
       const color = selected ? "#ffffff" : cardSuitColor(c);
@@ -93,15 +111,6 @@
         <text x='20' y='52' font-size='36' font-family='Inter,Arial,sans-serif' fill='${color}' font-weight='800'>${top}</text>
         <text x='90' y='146' text-anchor='middle' font-size='84' font-family='Inter,Arial,sans-serif' fill='${color}'>${center}</text>
         <text x='160' y='226' text-anchor='end' font-size='36' font-family='Inter,Arial,sans-serif' fill='${color}' font-weight='800'>${top}</text>
-      </svg>`;
-      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-    }
-    function cardBackImageData(){
-      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 250'>
-        <rect x='5' y='5' width='170' height='240' rx='18' fill='#e2e8f0' stroke='#94a3b8' stroke-width='6'/>
-        <rect x='24' y='24' width='132' height='202' rx='14' fill='#1e293b' opacity='0.9'/>
-        <circle cx='90' cy='125' r='34' fill='#334155'/>
-        <text x='90' y='134' text-anchor='middle' font-size='30' font-family='Inter,Arial,sans-serif' fill='#e2e8f0'>C</text>
       </svg>`;
       return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
     }
@@ -710,7 +719,7 @@
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", `draw:${from}`);
         const img = new Image();
-        img.src = from === "deck" ? cardBackImageData() : cardImageData(card, false);
+        img.src = from === "deck" ? cardBackImageData() : cardImageData(card);
         img.style.position = "absolute";
         img.style.left = "-9999px";
         img.style.width = "56px";
@@ -723,9 +732,14 @@
 
       function CardFace({ card, selected: isSelected=false, highlight=false, className="" }){
         return <img
-          src={cardImageData(card, isSelected)}
+          src={cardImageData(card)}
           alt={cardLabel(card)}
-          className={`h-20 w-14 rounded-lg border border-slate-300/80 shadow-sm bg-white object-cover select-none ${highlight ? "ring-2 ring-emerald-400" : ""} ${className}`}
+          onError={(e)=>{
+            if(e.currentTarget.dataset.fallbackApplied === "1") return;
+            e.currentTarget.dataset.fallbackApplied = "1";
+            e.currentTarget.src = cardSvgFallbackData(card, isSelected);
+          }}
+          className={`h-20 w-14 rounded-lg border border-slate-300/80 shadow-sm bg-white object-cover select-none ${highlight ? "ring-2 ring-emerald-400" : ""} ${isSelected ? "ring-2 ring-sky-500" : ""} ${className}`}
           draggable={false}
         />;
       }
