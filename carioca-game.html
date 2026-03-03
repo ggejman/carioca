@@ -83,20 +83,24 @@
     function cardAssetKey(c){
       if(c.joker){
         const parity = [...c.id].reduce((sum, ch)=>sum + ch.charCodeAt(0), 0) % 2;
-        return `JOKER_${parity+1}`;
+        return parity === 0 ? "black_joker" : "red_joker";
       }
-      const suitMap = { "♠":"S", "♥":"H", "♦":"D", "♣":"C" };
-      return `${c.rank}_${suitMap[c.suit]}`;
+      const rankMap = {
+        A:"ace", J:"jack", Q:"queen", K:"king",
+        "2":"2", "3":"3", "4":"4", "5":"5", "6":"6", "7":"7", "8":"8", "9":"9", "10":"10"
+      };
+      const suitMap = { "♠":"spades", "♥":"hearts", "♦":"diamonds", "♣":"clubs" };
+      return `${rankMap[c.rank]}_of_${suitMap[c.suit]}`;
     }
     function cardAssetPath(filename){
-      try { return new URL(`assets/cards/${filename}`, window.location.href).href; }
-      catch { return `assets/cards/${filename}`; }
+      try { return new URL(`assets/svg_cards/${filename}`, window.location.href).href; }
+      catch { return `assets/svg_cards/${filename}`; }
     }
     function cardImageData(c){
       return cardAssetPath(`${cardAssetKey(c)}.svg`);
     }
     function cardBackImageData(){
-      return cardAssetPath("BACK.svg");
+      return "assets/cards/BACK.svg";
     }
     function cardSvgFallbackData(c, selected=false){
       const rank = c.joker ? "JOKER" : c.rank;
@@ -803,7 +807,7 @@
             <div className="mt-3 flex flex-wrap gap-1.5 min-h-[74px] items-end relative">
               {state.aiDrawPreviewCard && (
                 <img
-                  src={state.aiLastDrawFrom === "deck" ? "assets/cards/BACK.svg" : cardImageData(state.aiDrawPreviewCard)}
+                  src={state.aiLastDrawFrom === "deck" ? cardBackImageData() : cardImageData(state.aiDrawPreviewCard)}
                   alt="AI draw"
                   className="pointer-events-none absolute left-1 top-1 h-20 w-14 rounded-lg border border-amber-200/60 shadow-lg animate-[aiDraw_900ms_ease-out]"
                 />
