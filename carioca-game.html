@@ -801,7 +801,13 @@
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5 min-h-[74px] items-end relative">
-              {state.aiDrawPreviewCard && <img src={cardImageData(state.aiDrawPreviewCard)} alt="AI draw" className="pointer-events-none absolute left-1 top-1 h-20 w-14 rounded-lg border border-amber-200/60 shadow-lg animate-[aiDraw_900ms_ease-out]" />}
+              {state.aiDrawPreviewCard && (
+                <img
+                  src={state.aiLastDrawFrom === "deck" ? "assets/cards/BACK.svg" : cardImageData(state.aiDrawPreviewCard)}
+                  alt="AI draw"
+                  className="pointer-events-none absolute left-1 top-1 h-20 w-14 rounded-lg border border-amber-200/60 shadow-lg animate-[aiDraw_900ms_ease-out]"
+                />
+              )}
               {Array.from({ length: computerHandCount }).map((_, idx)=><div key={idx} className="h-20 w-14 rounded-lg bg-gradient-to-br from-slate-100 to-slate-300 border border-slate-300/80 shadow" />)}
             </div>
           </div>
