@@ -17,12 +17,13 @@
     html,body,#root{height:100%;}
     @keyframes aiDraw{0%{transform:translate(-110px,-30px) scale(0.9);opacity:0.75;}100%{transform:translate(0,0) scale(1);opacity:1;}}
     @keyframes aiDiscard{0%{transform:translate(-90px,-15px) scale(0.95);opacity:0.8;}100%{transform:translate(0,0) scale(1);opacity:1;}}
+    @keyframes fireworksBurst{0%{transform:translate(var(--x), var(--y)) scale(0.2);opacity:1;}100%{transform:translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy))) scale(1.4);opacity:0;}}
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100">
   <div id="root"></div>
   <script type="text/babel">
-    const { useEffect, useMemo, useState } = React;
+    const { useEffect, useMemo, useRef, useState } = React;
 
     const APP_VERSION = "v0.69";
 
@@ -400,6 +401,8 @@
       const [dragOverMeldId, setDragOverMeldId] = useState(null);
       const [dragOverDiscardBox, setDragOverDiscardBox] = useState(false);
       const [draggingDrawFrom, setDraggingDrawFrom] = useState(null);
+      const [showWinFireworks, setShowWinFireworks] = useState(false);
+      const lastCelebratedRoundRef = useRef(null);
 
       useEffect(()=>{
         if(!games.length){
@@ -431,6 +434,16 @@
         const t = setTimeout(()=>setState(prev=>runAiTurn(prev)), 1600);
         return ()=>clearTimeout(t);
       },[state]);
+
+      useEffect(()=>{
+        if(!state || state.phase !== "roundOver") return;
+        const celebrationKey = `${gameId || "game"}-${state.roundIndex}-${state.round.winner}`;
+        if(state.round.winner !== "human" || lastCelebratedRoundRef.current === celebrationKey) return;
+        lastCelebratedRoundRef.current = celebrationKey;
+        setShowWinFireworks(true);
+        const timer = setTimeout(()=>setShowWinFireworks(false), 2400);
+        return ()=>clearTimeout(timer);
+      }, [state?.phase, state?.round?.winner, state?.roundIndex, gameId]);
 
       useEffect(()=>{
         if(!state || state.handSortMode) return;
@@ -771,6 +784,31 @@
       if(!state) return <div className="p-4">Loading…</div>;
 
       return <div className="max-w-6xl mx-auto p-4 space-y-4">
+        {showWinFireworks && <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">
+          {Array.from({ length: 24 }).map((_, idx)=>{
+            const x = `${8 + ((idx * 17) % 84)}vw`;
+            const y = `${10 + ((idx * 37) % 70)}vh`;
+            const angle = (idx * 47) % 360;
+            const dx = `${Math.cos(angle * Math.PI / 180) * 90}px`;
+            const dy = `${Math.sin(angle * Math.PI / 180) * 90}px`;
+            const hue = (idx * 23) % 360;
+            return <span
+              key={idx}
+              className="absolute block h-3 w-3 rounded-full"
+              style={{
+                "--x": x,
+                "--y": y,
+                "--dx": dx,
+                "--dy": dy,
+                left: 0,
+                top: 0,
+                backgroundColor: `hsl(${hue} 95% 60%)`,
+                boxShadow: `0 0 12px hsl(${hue} 95% 60%)`,
+                animation: `fireworksBurst 1100ms ease-out ${idx * 35}ms forwards`
+              }}
+            />;
+          })}
+        </div>}
         <header className="flex flex-wrap gap-2 items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Carioca — Human vs Computer</h1>
