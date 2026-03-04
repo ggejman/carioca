@@ -516,11 +516,22 @@
         setSelected(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
       }
 
+      function displayHandForMode(hand, mode){
+        return mode === "manual" ? hand : sortHand(hand, mode || "rank");
+      }
+
       function setHandSortMode(mode){
         setState(prev => {
           if(!prev) return prev;
           if(mode !== "rank" && mode !== "suit" && mode !== "manual") return prev;
-          return { ...prev, handSortMode: mode };
+          const currentMode = prev.handSortMode || "manual";
+          if(mode === currentMode) return prev;
+          const next = structuredClone(prev);
+          if(mode === "manual" && currentMode !== "manual"){
+            next.round.hands.human = displayHandForMode(prev.round.hands.human, currentMode);
+          }
+          next.handSortMode = mode;
+          return next;
         });
       }
 
@@ -528,14 +539,23 @@
         if(!draggedId || !targetId || draggedId === targetId) return;
         setState(prev => {
           if(!prev) return prev;
+          const mode = prev.handSortMode || "manual";
           const hand = prev.round.hands.human;
-          const from = hand.findIndex(c=>c.id===draggedId);
-          const to = hand.findIndex(c=>c.id===targetId);
+          const visible = displayHandForMode(hand, mode);
+          const from = visible.findIndex(c=>c.id===draggedId);
+          const to = visible.findIndex(c=>c.id===targetId);
           if(from < 0 || to < 0 || from === to) return prev;
+
+          const reorderedIds = visible.map(c=>c.id);
+          const [movedId] = reorderedIds.splice(from, 1);
+          reorderedIds.splice(to, 0, movedId);
+
+          const byId = new Map(hand.map(c=>[c.id, c]));
+          const reorderedHand = reorderedIds.map(id => byId.get(id)).filter(Boolean);
+          if(reorderedHand.length !== hand.length) return prev;
+
           const next = structuredClone(prev);
-          const nextHand = next.round.hands.human;
-          const [moved] = nextHand.splice(from, 1);
-          nextHand.splice(to, 0, moved);
+          next.round.hands.human = reorderedHand;
           next.handSortMode = "manual";
           return next;
         });
@@ -900,7 +920,7 @@
                   }
                 }}
               >
-                {(state.handSortMode === "manual" ? humanHand : sortHand(humanHand, state.handSortMode || "rank")).map(c=>{
+                {displayHandForMode(humanHand, state.handSortMode || "manual").map(c=>{
                   const active = selected.includes(c.id);
                   const isDropTarget = dragOverCardId === c.id && draggingCardId !== c.id;
                   const isNewlyDrawn = state.lastDrawnCardId === c.id;
@@ -909,13 +929,12 @@
                     draggable={true}
                     onDragStart={()=>setDraggingCardId(c.id)}
                     onDragOver={e=>{
-                      if(state.handSortMode !== "manual") return;
                       e.preventDefault();
                       setDragOverCardId(c.id);
                     }}
                     onDrop={e=>{
                       e.preventDefault();
-                      if(state.handSortMode === "manual") moveCardInHand(draggingCardId, c.id);
+                      moveCardInHand(draggingCardId, c.id);
                       setDraggingCardId(null);
                       setDragOverCardId(null);
                     }}
@@ -1075,6 +1094,7 @@
       const remainingComps = [...roundDef.components];
       next.round.laid.computer.forEach(d=>{ const i=remainingComps.indexOf(d); if(i>=0) remainingComps.splice(i,1); });
       const newMelds = findObjectiveMelds(hand, remainingComps, next.aiLevel);
+      const laidObjectiveThisTurn = newMelds.length > 0;
       if(newMelds.length){
         const used = new Set();
         for(const m of newMelds){
@@ -1088,8 +1108,8 @@
         aiEvents.push(`${next.computerName} laid ${newMelds.length} meld${newMelds.length>1?"s":""}`);
       }
 
-      // layoff if objective done
-      if(objectiveDone(next.round.laid.computer, roundDef.components)){
+      // layoff if objective was already complete before this turn
+      if(!laidObjectiveThisTurn && objectiveDone(next.round.laid.computer, roundDef.components)){
         let progressed = true;
         while(progressed){
           progressed = false;
