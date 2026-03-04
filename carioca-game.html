@@ -442,7 +442,10 @@
         lastCelebratedRoundRef.current = celebrationKey;
         setShowWinFireworks(true);
         const timer = setTimeout(()=>setShowWinFireworks(false), 2400);
-        return ()=>clearTimeout(timer);
+        return ()=>{
+          clearTimeout(timer);
+          setShowWinFireworks(false);
+        };
       }, [state?.phase, state?.round?.winner, state?.roundIndex, gameId]);
 
       useEffect(()=>{
