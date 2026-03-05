@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carioca Instructions</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="max-w-5xl mx-auto px-4 py-10 space-y-8">
+    <header class="space-y-3">
+      <a href="./index.html" class="inline-flex items-center gap-2 text-sm text-indigo-300 hover:text-indigo-200">← Back to home</a>
+      <h1 class="text-3xl font-bold tracking-tight">Carioca Instructions — Version 2</h1>
+      <p class="text-slate-300">A quick, practical guide for the <strong>Play vs Computer</strong> mode in this app.</p>
+    </header>
+
+    <section class="rounded-2xl border border-indigo-300/20 bg-indigo-500/10 p-5">
+      <h2 class="text-xl font-semibold mb-2">Quick start</h2>
+      <ol class="list-decimal ml-5 space-y-1 text-slate-100">
+        <li>Draw 1 card (from deck or discard pile).</li>
+        <li>Lay your objective meld(s) for the round if possible.</li>
+        <li>If your objective is complete, add cards to existing table melds.</li>
+        <li>Discard 1 card to end your turn.</li>
+      </ol>
+      <p class="text-sm text-slate-300 mt-3">You can only draw once per turn, and you must draw before discarding.</p>
+    </section>
+
+    <section class="grid md:grid-cols-2 gap-4">
+      <article class="rounded-2xl border border-white/15 bg-white/5 p-5 space-y-3">
+        <h2 class="text-xl font-semibold">Setup</h2>
+        <ul class="list-disc ml-5 space-y-1 text-slate-200">
+          <li>2 players: you and one AI opponent.</li>
+          <li>2 full decks + 4 jokers (108 cards total).</li>
+          <li>Each player is dealt 12 cards every round.</li>
+          <li>1 face-up card starts the discard pile.</li>
+        </ul>
+      </article>
+
+      <article class="rounded-2xl border border-white/15 bg-white/5 p-5 space-y-3">
+        <h2 class="text-xl font-semibold">Card points</h2>
+        <ul class="list-disc ml-5 space-y-1 text-slate-200">
+          <li>Joker = 30</li>
+          <li>Ace = 20</li>
+          <li>J/Q/K = 10</li>
+          <li>2–10 = face value</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="rounded-2xl border border-white/15 bg-white/5 p-5 space-y-3">
+      <h2 class="text-xl font-semibold">Meld rules</h2>
+      <div class="grid md:grid-cols-3 gap-3 text-sm">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <h3 class="font-semibold text-slate-100">Set of 3</h3>
+          <p class="text-slate-300 mt-1">Three cards of the same rank. At most one joker.</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <h3 class="font-semibold text-slate-100">Straight of 4</h3>
+          <p class="text-slate-300 mt-1">Four consecutive ranks. Aces can wrap in sequences.</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <h3 class="font-semibold text-slate-100">Jokers</h3>
+          <p class="text-slate-300 mt-1">Can substitute missing cards. In 13-card straights, jokers cannot be adjacent.</p>
+        </div>
+      </div>
+      <p class="text-sm text-slate-300">To go out (play your final card), your current round objective must already be complete.</p>
+    </section>
+
+    <section class="rounded-2xl border border-white/15 bg-white/5 p-5 space-y-3">
+      <h2 class="text-xl font-semibold">Round objectives (must be completed in order)</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left border-b border-white/10 text-slate-300">
+              <th class="py-2 pr-2">Round</th>
+              <th class="py-2">Objective</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-100">
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">1</td><td>Two three-of-a-kind</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">2</td><td>One straight + one three-of-a-kind</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">3</td><td>Two straights</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">4</td><td>Three three-of-a-kind</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">5</td><td>Two three-of-a-kind + one straight</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">6</td><td>Two straights + one three-of-a-kind</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">7</td><td>Four three-of-a-kind</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">8</td><td>Three straights</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">9</td><td>Crazy straight (13 cards, any suits)</td></tr>
+            <tr class="border-b border-white/5"><td class="py-2 pr-2">10</td><td>Colour straight (13 cards, all red or all black)</td></tr>
+            <tr><td class="py-2 pr-2">11</td><td>Royal straight (13 cards, same suit)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="rounded-2xl border border-emerald-300/20 bg-emerald-500/10 p-5 space-y-2">
+      <h2 class="text-xl font-semibold">How scoring and winning work</h2>
+      <ul class="list-disc ml-5 space-y-1 text-slate-100">
+        <li>A round ends immediately when a player has no cards left (this can happen after melding, with or without a discard).</li>
+        <li>The other player adds penalty points for all cards left in hand.</li>
+        <li>After round 11, the player with the <strong>lowest total score</strong> wins.</li>
+      </ul>
+    </section>
+  </main>
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(console.error)});
+    }
+  </script>
+
+</body>
+</html>

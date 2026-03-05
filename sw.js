@@ -1,9 +1,10 @@
-const CACHE = 'carioca-v9';
+const CACHE = 'carioca-v10';
 const CORE_ASSETS = [
   './',
   './index.html',
   './carioca-pwa.html',
   './carioca-game.html',
+  './instructions.html',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
