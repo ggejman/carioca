@@ -402,6 +402,7 @@
       const [dragOverDiscardBox, setDragOverDiscardBox] = useState(false);
       const [draggingDrawFrom, setDraggingDrawFrom] = useState(null);
       const [showWinFireworks, setShowWinFireworks] = useState(false);
+      const [uiPreset, setUiPreset] = useState("arc");
       const lastCelebratedRoundRef = useRef(null);
 
       useEffect(()=>{
@@ -781,9 +782,46 @@
         />;
       }
 
+      const UI_OPTIONS = {
+        arc: {
+          label: "Option 1 · Table Arc",
+          description: "Curved table feel with floating action controls.",
+          shell: "max-w-6xl mx-auto p-4 space-y-4",
+          board: "p-4 rounded-3xl bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-900 border border-emerald-600/40 shadow-2xl space-y-4",
+          infoGrid: "grid md:grid-cols-3 gap-3",
+          handPanel: "p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20",
+          actionPanel: "p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20",
+          tablePanel: "p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20",
+          controlsGrid: "flex flex-wrap gap-2"
+        },
+        split: {
+          label: "Option 2 · Split Focus",
+          description: "Clear left-to-right flow: draw, meld, discard.",
+          shell: "max-w-[1200px] mx-auto p-4 space-y-4",
+          board: "p-4 rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl space-y-4",
+          infoGrid: "grid md:grid-cols-3 gap-3",
+          handPanel: "p-3 rounded-2xl bg-slate-800/80 border border-slate-600/60",
+          actionPanel: "p-3 rounded-2xl bg-slate-800/80 border border-slate-600/60",
+          tablePanel: "p-3 rounded-2xl bg-slate-800/80 border border-slate-600/60",
+          controlsGrid: "grid md:grid-cols-5 gap-2"
+        },
+        compact: {
+          label: "Option 3 · Compact Dock",
+          description: "Mobile-first dock for one-tap actions and drag gestures.",
+          shell: "max-w-5xl mx-auto p-3 md:p-4 space-y-3",
+          board: "p-3 md:p-4 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-xl space-y-3",
+          infoGrid: "grid sm:grid-cols-2 lg:grid-cols-3 gap-2",
+          handPanel: "p-2.5 rounded-xl bg-zinc-800/80 border border-zinc-600/60",
+          actionPanel: "p-2.5 rounded-xl bg-zinc-800/80 border border-zinc-600/60 sticky bottom-2 z-20",
+          tablePanel: "p-2.5 rounded-xl bg-zinc-800/80 border border-zinc-600/60",
+          controlsGrid: "grid grid-cols-2 md:grid-cols-5 gap-2"
+        }
+      };
+      const ui = UI_OPTIONS[uiPreset] || UI_OPTIONS.arc;
+
       if(!state) return <div className="p-4">Loading…</div>;
 
-      return <div className="max-w-6xl mx-auto p-4 space-y-4">
+      return <div className={ui.shell}>
         {showWinFireworks && <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden="true">
           {Array.from({ length: 24 }).map((_, idx)=>{
             const x = `${8 + ((idx * 17) % 84)}vw`;
@@ -823,7 +861,21 @@
           </div>
         </header>
 
-        <section className="grid md:grid-cols-3 gap-3">
+        <section className="p-3 rounded-2xl bg-white/5 border border-white/10">
+          <div className="text-sm font-medium mb-2">UI prototypes (pick one and keep playing instantly)</div>
+          <div className="grid md:grid-cols-3 gap-2">
+            {Object.entries(UI_OPTIONS).map(([key, option])=><button
+              key={key}
+              onClick={()=>setUiPreset(key)}
+              className={`text-left px-3 py-2 rounded-xl border transition ${uiPreset===key ? "bg-indigo-500/25 border-indigo-300 text-indigo-100" : "bg-slate-900/50 border-white/10 hover:border-white/30"}`}
+            >
+              <div className="text-sm font-semibold">{option.label}</div>
+              <div className="text-xs text-slate-300">{option.description}</div>
+            </button>)}
+          </div>
+        </section>
+
+        <section className={ui.infoGrid}>
           <div className="p-3 rounded-2xl bg-white/10 backdrop-blur border border-white/10 shadow-lg">
             <div className="font-semibold">Players</div>
             <div>{state.humanName} (You)</div>
@@ -842,7 +894,7 @@
           </div>
         </section>
 
-        <section className="p-4 rounded-3xl bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-900 border border-emerald-600/40 shadow-2xl space-y-4">
+        <section className={ui.board}>
           <div className="flex items-start justify-between gap-3 text-emerald-50">
             <div>
               <div className="font-semibold">Turn: {state.currentPlayer === "human" ? "You" : state.computerName}</div>
@@ -931,7 +983,7 @@
             </div>
           </div>
 
-          <section className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20">
+          <section className={ui.handPanel}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="font-semibold text-emerald-50">Your hand ({humanHand.length})</div>
               <label className="text-xs text-emerald-100 flex items-center gap-2">Sort by
@@ -986,8 +1038,8 @@
             </div>
           </section>
 
-          <section className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20">
-            <div className="flex flex-wrap gap-2">
+          <section className={ui.actionPanel}>
+            <div className={ui.controlsGrid}>
               <button className="px-2 py-1 border border-white/20 rounded-lg bg-slate-900/60 text-sm" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete} onClick={layObjective}>Lay objective meld</button>
               <button className="px-2 py-1 border border-white/20 rounded-lg bg-slate-900/60 text-sm" disabled={state.currentPlayer!=="human" || !state.hasDrawn || humanObjectiveComplete || !(state.objectiveMeldIdsLaidThisTurn||[]).length} onClick={rollbackObjectiveMelds}>Rollback objective meld(s)</button>
               <select className="border border-white/20 rounded-lg px-2 py-1 bg-slate-900/80 text-sm" value={meldTarget} onChange={e=>setMeldTarget(e.target.value)}>
@@ -999,7 +1051,7 @@
             </div>
           </section>
 
-          <section className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-300/20">
+          <section className={ui.tablePanel}>
             <div className="font-semibold text-emerald-50">Table melds</div>
             <div className="grid md:grid-cols-2 gap-2 mt-2">
               {state.round.tableMelds.map((m, i)=>{
